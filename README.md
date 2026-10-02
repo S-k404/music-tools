@@ -1,7 +1,12 @@
 # music-tools
 
-Small scripts for cleaning up a local music library, especially music
-downloaded from YouTube with yt-dlp.
+A small, focused toolkit for cleaning up a local music library — especially
+one built from YouTube downloads via `yt-dlp`, where cover art, artist
+pictures, lyrics and tags are usually missing or wrong. Every tool is
+read-first (list/dry-run modes that touch nothing), multi-threaded, and driven
+by one shared `config.toml` so you only have to set your music folder once.
+Day to day, the only command you need is `mt` — everything below is also
+reachable from its interactive menu.
 
 | Script | What it does |
 | --- | --- |
@@ -16,9 +21,21 @@ All of them show progress bars, work on several files at once, and read their
 settings from one `config.toml`. Day to day you only need one command, `mt`
 (see below).
 
-## Setup
+## Requirements
 
-Requires Python 3.11+ and [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`brew install yt-dlp`).
+- Python 3.11 or newer (checked at startup; `common.py` exits with a clear
+  message on anything older).
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`brew install yt-dlp`) for the
+  YouTube searches `fix_album_art.py` and `find_artist_art.py` fall back to.
+- Python packages from `requirements.txt`: `mutagen` (reading/writing tags),
+  `Pillow` (cropping/converting cover art), `tqdm` (progress bars). These are
+  required; `./setup.sh` installs them for you.
+- Optional, for lyrics romanization (`find_lyrics.py` / `mt lyrics`): `cutlet`
+  + `unidic-lite` (Japanese, ~250 MB), `pypinyin` (Chinese), and
+  `korean-romanizer` (Korean). Without them, that column is just left out, and
+  Korean falls back to a smaller built-in table. Russian needs no package.
+
+## Setup
 
 ```bash
 ./setup.sh
@@ -381,3 +398,17 @@ python3 library_stats.py
 ```bash
 python3 -m unittest discover -s tests -v
 ```
+
+See `CHANGELOG.md` for a history of notable changes.
+
+## Contributing
+
+Issues and pull requests are welcome. For anything beyond a small fix, open an
+issue first describing the change — these tools are built around real music
+libraries, so behavior changes that affect file safety need a clear
+before/after. Please add or update a test under `tests/` for any behavior
+change.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
