@@ -1,0 +1,11 @@
+mutagen>=1.47
+Pillow>=10
+tqdm>=4.66
+yt-dlp
+
+# Romanization for find_lyrics.py (romaji, pinyin, Korean with pronunciation rules).
+# Without them that column is left out, and Korean falls back to a plainer built-in method.
+cutlet>=0.5        # Japanese romaji (splits words properly, so particles come out right)
+unidic-lite>=1.0   # the dictionary cutlet needs (about 250 MB installed)
+pypinyin>=0.50     # Chinese
+korean-romanizer>=0.25   # Korean

@@ -1,0 +1,8 @@
+config.toml
+failed_album_art.txt
+__pycache__/
+*.pyc
+.DS_Store
+.venv/
+logs/
+lyrics_checked.json

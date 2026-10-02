@@ -1,0 +1,121 @@
+# Copy this file to config.toml (next to the scripts) or ~/.config/music-tools/config.toml
+# and edit it. Command-line flags override anything set here.
+
+# Root of your music library. Used by fix_misidentified_tags.py when no path is given,
+# and as the base for relative folders below. The MUSIC_DIR env var overrides it.
+music_dir = "~/Music"
+
+# How many files / YouTube lookups to handle at once.
+workers = 8
+
+# Save a copy of everything each run prints to the logs/ folder (keeps the last 200).
+save_logs = true
+
+[album_art]
+# Folders to scan for songs without cover art (absolute, or relative to music_dir).
+folders = ["."]                      # e.g. ["YouTube", "Downloads/Mixes"]
+
+# How closely a YouTube title must match the song name to be used without asking.
+# 1.0 = exactly the same words. Lower (e.g. 0.8) accepts looser matches.
+min_match = 1.0
+
+# Number of YouTube search results to consider / show when asking.
+search_results = 5
+
+# Crop the 16:9 thumbnail to a centered square.
+crop = true
+
+# Replace cover art that's already embedded.
+force = false
+
+# JPEG quality of the embedded cover (1-100).
+jpeg_quality = 92
+
+# Use an image next to the song with the same name (song.jpg) before searching.
+sidecar_images = true
+
+# Convert .webm files (which can't hold cover art) to .opus without re-encoding,
+# then move the original .webm to the Trash. Same as passing --convert-webm.
+convert_webm = false
+
+[artist_art]
+# Folders to read artists from (absolute, or relative to music_dir). "." = the whole music folder.
+folders = ["."]
+
+# Where artist pictures are saved, one <Artist>.jpg each (absolute, or relative to music_dir).
+output_dir = "Artist Art"
+
+# Number of artists to show when asking which one is right.
+search_results = 5
+
+# Replace pictures that already exist.
+force = false
+
+[lyrics]
+# Folders to find lyrics for (absolute, or relative to music_dir). "." = the whole music folder.
+folders = ["."]
+
+# Which files to save next to each song: "lrc" (synced, for music players), "txt" (plain),
+# "html" (a page with original / romanization / English in columns, plays along if synced).
+formats = ["lrc", "html"]
+
+# Translation services to try, in this order, falling back to the next if one is
+# down or out of quota: "google" (free, no key), "mymemory" (free, small daily
+# quota), "deepl" (needs $DEEPL_API_KEY), "claude" (needs $ANTHROPIC_API_KEY).
+translators = ["google", "mymemory", "deepl", "claude"]
+
+# Claude model used for translation, if "claude" is in translators.
+claude_model = "claude-sonnet-5"
+
+# Only songs whose lyrics aren't English get a translation (and files). false = also save English songs' lyrics.
+only_foreign = true
+
+# Lyrics that are already romanized (romaji in Latin letters, like a lot of lrclib entries and .lrc files) get an
+# English translation too. Japanese romaji is written back into kana first, so Google/DeepL can read it; Korean
+# and Chinese romanization can only be translated by Claude. false = leave those songs alone.
+translate_romanized = true
+
+# What each line shows, in .lrc/.txt files and when the .html page first opens. Any of:
+# "original" (kanji / hangul), "romanization" (romaji / pinyin), "english". The page has all of them
+# and switches between them with buttons; `--relayer` re-applies a new choice to finished songs.
+#   ["original", "english"]      original + translation
+#   ["romanization", "english"]  romaji + translation
+#   ["original", "romanization"] original + romaji
+layers = ["original", "romanization", "english"]
+
+# Replace lyrics files that already exist.
+force = false
+
+# Where to keep the <song>.lrc.bak backups made when a translation is added to a .lrc file you wrote
+# yourself. Empty (default) keeps each backup right next to its song, like now. Set this to a folder
+# (absolute, or relative to music_dir) to collect them there instead, mirroring the library's folder
+# structure, so updating thousands of your own .lrc files doesn't scatter .bak files through it.
+# `mt lyrics --restore-lrc` puts them back, wherever they are.
+backup_dir = ""
+
+[tags]
+# "auto"   clean title for normal tracks, full filename for live sets
+# "stem"   always the full filename
+# "parsed" only the part parsed out of the filename
+title_mode = "auto"
+
+# "folder" parent folder name, "clear" remove it, "title" same as title, "keep" leave it
+album_mode = "folder"
+
+# Set Artist from the filename when it has one ("Artist - Title").
+update_artist = true
+
+# Remove MusicBrainz / AcoustID tags that link the file to the wrong release.
+clear_picard = true
+
+# Clear wrong track/disc numbers (a number in the filename, like "03 - Title", is kept).
+clear_tracks = true
+
+[duplicates]
+# Folders to check for likely duplicate songs (absolute, or relative to music_dir). "." = the whole music folder.
+folders = ["."]
+
+# How many seconds apart two same-titled songs' lengths can be and still count as the same recording.
+# Songs that are deliberately different versions (sped up, slowed, a remix) usually differ by much more
+# than this and are correctly never flagged.
+tolerance_seconds = 3.0

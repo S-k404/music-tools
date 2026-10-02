@@ -1,0 +1,295 @@
+#!/usr/bin/env python3
+"""music-tools: one command for switching folders, changing settings and running the tools."""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+# ./setup.sh installs the packages into .venv; use it automatically so nobody has to type .venv/bin/python
+_VENV_PYTHON = HERE / ".venv" / "bin" / "python"
+if _VENV_PYTHON.is_file() and Path(sys.prefix).resolve() != (HERE / ".venv").resolve() \
+        and not os.environ.get("MUSIC_TOOLS_NO_VENV"):
+    os.execv(str(_VENV_PYTHON), [str(_VENV_PYTHON), *sys.argv])
+sys.path.insert(0, str(HERE))
+
+from common import DEFAULTS, config_path, read_raw_config, resolve, save_config  # noqa: E402
+from interactive import run as run_menu, run_tool  # noqa: E402
+
+PROG = os.environ.get("MUSIC_TOOLS_NAME") or Path(sys.argv[0]).name
+if PROG.endswith(".py"):
+    PROG = "music-tools"
+
+HELP = f"""\
+music-tools — fix cover art, artist pictures and tags in your music library
+
+Usage: {PROG}                       open the interactive menu (arrow keys + Enter)
+       {PROG} <command> [options]   run a command directly
+
+FOLDERS & SETTINGS
+  {PROG} where                       show the music folder, art folders and config file
+  {PROG} dir PATH                    set the music library folder (music_dir)
+  {PROG} folders                     list the folders checked for missing art
+  {PROG} folders use PATH [PATH..]   switch to these folders (replaces the list)
+  {PROG} folders add PATH [PATH..]   add folders to the list
+  {PROG} folders remove PATH         remove a folder from the list
+  {PROG} settings                    show every setting
+  {PROG} set KEY VALUE               change a setting, e.g.  set album_art.min_match 0.9
+  {PROG} reset KEY                   put a setting back to its default
+  {PROG} edit                        open the config file in your text editor
+
+  Folder paths can be full paths, relative to where you are ("."), or relative
+  to the music folder (e.g. "Mixes").
+
+ALBUM ART  (fix_album_art.py)
+  {PROG} missing                     list songs without cover art (changes nothing)
+  {PROG} art                         add missing art to the art folders
+  {PROG} art PATH [PATH..]           add missing art in specific files/folders
+  {PROG} art --dry-run               find art but don't write it
+  {PROG} art --auto                  never ask; skip songs without an exact match
+  {PROG} art SONG --url LINK         use this YouTube video's thumbnail for one song
+  {PROG} art SONG --force            redo a song that already has art
+  {PROG} art --convert-webm          turn .webm files into .opus (no quality loss) and add art
+  {PROG} art --no-crop               keep the wide 16:9 thumbnail
+  {PROG} art --min-match 0.8         accept looser title matches without asking
+  {PROG} retry                       re-run only the songs that failed last time
+
+ARTIST PICTURES  (find_artist_art.py)  — saved as <Artist>.jpg in one folder, songs are never changed
+  {PROG} artists                     find a picture for every artist that doesn't have one
+  {PROG} artists --list-missing      list artists without a picture (no downloading)
+  {PROG} artists --artist "Name"     look up one artist (repeat --artist for several)
+  {PROG} artists --artist "Name" --image LINK_OR_FILE
+                                     use your own picture (Deezer artist link, image link or file)
+  {PROG} artists PATH [PATH..]       read artists from specific files/folders
+  {PROG} artists --dry-run           look them up but save nothing
+  {PROG} artists --auto              never ask; skip artists without an exact name match
+  {PROG} artists --force             replace pictures that already exist
+  {PROG} set artist_art.output_dir "Artist Art"   where the pictures go (relative to the music folder)
+
+LYRICS  (find_lyrics.py)  — original + romanization + English, saved next to each song
+  {PROG} lyrics                      translate songs that aren't in English (skips English ones)
+  {PROG} lyrics --list-missing       list songs without lyrics yet (no fetching)
+  {PROG} lyrics PATH [PATH..]        do specific files/folders
+  {PROG} lyrics --dry-run --limit 10 trial run on 10 songs: fetch and translate, save nothing
+  {PROG} lyrics "song.flac" --show   just this song, and print it side by side here too
+  {PROG} lyrics --layers original,english        what each line shows: any of original (kanji/hangul),
+                                     romanization (romaji), english; default all three
+  {PROG} lyrics --relayer --layers romanization,english
+                                     switch finished songs to another pair (no lookups, works offline)
+  {PROG} lyrics "song.flac" --lyrics FILE        use the lyrics in this .lrc/.txt file
+  {PROG} lyrics --yes                add translations to your own .lrc files without asking
+                                     (each original is kept as <song>.lrc.bak)
+  {PROG} lyrics --include-english    also save lyrics for songs that are already English
+  {PROG} lyrics --no-romanized       leave lyrics that are already romanized (romaji) alone; by default they
+                                     get an English translation (Korean/Chinese romanization needs Claude)
+  {PROG} lyrics --offline            only use .lrc files and tags you already have
+  {PROG} lyrics --artist X --title Y look up a song that isn't in your library; prints, doesn't save
+  {PROG} lyrics --no-translate       original + romanization only, skip English
+  {PROG} lyrics --formats lrc,html   only write these (lrc, txt, html; default: lrc, html)
+  {PROG} lyrics "song.flac" --force  redo a song that already has lyrics
+  {PROG} lyrics --report missing.txt save the not-found/failed list (path + reason) as a text file
+  {PROG} set lyrics.layers original,english        keep this pair by default
+  {PROG} set lyrics.translators "google,mymemory"   which translation services to try, in order
+
+TAGS  (fix_misidentified_tags.py)  — preview only unless you add --apply
+  {PROG} tags                        preview tag fixes for the whole music folder
+  {PROG} tags PATH [PATH..]          preview specific files/folders
+  {PROG} tags --only-severe          only songs whose tags are clearly wrong
+  {PROG} tags --only-mismatched      only songs whose title differs or have Picard IDs
+  {PROG} tags --filter TEXT          only paths containing TEXT
+  {PROG} tags --apply                write the changes
+  {PROG} tags --title-mode auto|stem|parsed
+  {PROG} tags --album-mode folder|clear|title|keep
+  {PROG} tags --no-artist | --keep-picard-tags | --keep-tracks
+
+DUPLICATES  (find_duplicates.py)  — report only, nothing is ever deleted or moved
+  {PROG} duplicates                   find likely duplicate songs in duplicates.folders
+  {PROG} duplicates PATH [PATH..]     check specific files/folders
+  {PROG} duplicates --tolerance 1.5   how close two lengths (seconds) still count as the same recording
+  {PROG} duplicates --report dupes.txt   save the group listing as a text file
+
+LIBRARY STATS  (library_stats.py)  — one-screen health check, read-only and offline
+  {PROG} stats                        cover art, artist pictures, lyrics and tag coverage in one view
+
+BOTH
+  --config FILE        use a different config file      --workers N   parallel jobs (1-64)
+  --no-progress        hide progress bars               Ctrl-C        stop safely
+
+  {PROG} help art         full options for the album art tool
+  {PROG} help artists     full options for the artist pictures tool
+  {PROG} help lyrics      full options for the lyrics tool
+  {PROG} help tags        full options for the tag tool
+  {PROG} help duplicates  full options for the duplicate-finder tool
+"""
+
+SCRIPTS = {"art": "fix_album_art.py", "artists": "find_artist_art.py", "lyrics": "find_lyrics.py",
+          "tags": "fix_misidentified_tags.py", "duplicates": "find_duplicates.py", "stats": "library_stats.py"}
+
+
+def run_script(name: str, args: list) -> int:
+    return run_tool(name, args)  # the script handles Ctrl-C itself and stops safely
+
+
+def parse_value(text: str, example):
+    """Turn command-line text into the same type as the default value."""
+    if isinstance(example, bool):
+        low = text.lower()
+        if low in ("true", "yes", "on", "1"):
+            return True
+        if low in ("false", "no", "off", "0"):
+            return False
+        sys.exit(f"Expected true or false, got {text!r}")
+    if isinstance(example, (int, float)):
+        try:
+            return int(text) if isinstance(example, int) and "." not in text else float(text)
+        except ValueError:
+            sys.exit(f"Expected a number, got {text!r}")
+    if isinstance(example, list):
+        return [p.strip() for p in text.split(",") if p.strip()]
+    return text
+
+
+def split_key(key: str):
+    parts = key.split(".")
+    if len(parts) == 1 and parts[0] in DEFAULTS and not isinstance(DEFAULTS[parts[0]], dict):
+        return None, parts[0]
+    if len(parts) == 2 and isinstance(DEFAULTS.get(parts[0]), dict) and parts[1] in DEFAULTS[parts[0]]:
+        return parts[0], parts[1]
+    keys = [k for k, v in DEFAULTS.items() if not isinstance(v, dict)]
+    keys += [f"{s}.{k}" for s, v in DEFAULTS.items() if isinstance(v, dict) for k in v]
+    sys.exit(f"Unknown setting {key!r}. Settings: {', '.join(keys)}")
+
+
+def folder_entry(text: str, music_dir: str) -> str:
+    """Store existing paths as full paths; otherwise keep them relative to music_dir."""
+    p = Path(text).expanduser()
+    if p.is_dir():
+        return str(p.resolve())
+    if p.is_absolute():
+        print(f"  note: {p} doesn't exist (yet) — added anyway")
+        return str(p)
+    if not resolve(text, music_dir).is_dir():
+        print(f"  note: {resolve(text, music_dir)} doesn't exist (yet) — added anyway")
+    return text
+
+
+def show_where(cfg: dict, path: Path):
+    music_dir = str(Path(cfg["music_dir"]).expanduser())
+    print(f"Config file:  {path}{'' if path.is_file() else '  (not created yet, using defaults)'}")
+    print(f"Music folder: {music_dir}{'' if Path(music_dir).is_dir() else '  (not found!)'}")
+    print("Art folders:")
+    for f in cfg["album_art"]["folders"]:
+        full = resolve(f, music_dir)
+        print(f"  {f}" + ("" if str(full) == f else f"  ->  {full}") + ("" if full.is_dir() else "  (not found!)"))
+
+
+def main(argv: list) -> int:
+    config = None
+    if len(argv) >= 2 and argv[0] == "--config":
+        config, argv = argv[1], argv[2:]
+    extra = ["--config", config] if config else []
+    if not argv or argv[0] == "menu":
+        if not sys.stdin.isatty():
+            print(HELP)
+            return 0
+        return run_menu(config, HELP)
+    if argv[0] in ("help", "-h", "--help"):
+        if len(argv) > 1 and argv[1] in SCRIPTS:
+            return run_script(argv[1], ["--help"])
+        print(HELP)
+        return 0
+
+    cmd, args = argv[0], argv[1:]
+    if cmd in SCRIPTS:
+        return run_script(cmd, extra + args)
+    if cmd == "missing":
+        return run_script("art", extra + ["--list-missing", *args])
+    if cmd == "retry":
+        return run_script("art", extra + ["--retry", *args])
+
+    path = config_path(config)
+    cfg = read_raw_config(path)
+    music_dir = str(Path(cfg["music_dir"]).expanduser())
+    folders = cfg["album_art"]["folders"]
+
+    if cmd == "where":
+        show_where(cfg, path)
+        return 0
+
+    if cmd == "dir":
+        if not args:
+            print(music_dir)
+            return 0
+        new = Path(args[0]).expanduser()
+        if not new.is_dir():
+            print(f"  note: {new} doesn't exist (yet) — saved anyway")
+        cfg["music_dir"] = str(new.resolve() if new.is_dir() else new)
+        save_config(cfg, path)
+        show_where(cfg, path)
+        return 0
+
+    if cmd == "folders":
+        action = args[0] if args else "list"
+        targets = args[1:]
+        if action in ("list", "ls"):
+            show_where(cfg, path)
+            return 0
+        if action not in ("use", "set", "add", "remove", "rm") or not targets:
+            sys.exit(f"Usage: {PROG} folders [use|add|remove] PATH [PATH..]")
+        if action in ("use", "set"):
+            cfg["album_art"]["folders"] = [folder_entry(t, music_dir) for t in targets]
+        elif action == "add":
+            for t in targets:
+                entry = folder_entry(t, music_dir)
+                if entry not in folders:
+                    folders.append(entry)
+        else:
+            for t in targets:
+                matches = [f for f in folders if f == t or resolve(f, music_dir) == resolve(t, music_dir)
+                           or Path(f) == Path(t).expanduser().resolve()]
+                if not matches:
+                    sys.exit(f"{t!r} isn't in the list. Current folders: {', '.join(folders)}")
+                for m in matches:
+                    folders.remove(m)
+        save_config(cfg, path)
+        show_where(cfg, path)
+        return 0
+
+    if cmd == "settings":
+        print(f"# {path}")
+        for k, v in cfg.items():
+            if not isinstance(v, dict):
+                print(f"{k} = {v!r}")
+        for section, values in cfg.items():
+            if isinstance(values, dict):
+                print(f"\n[{section}]")
+                for k, v in values.items():
+                    print(f"{section}.{k} = {v!r}")
+        return 0
+
+    if cmd in ("set", "reset"):
+        if (cmd == "set" and len(args) != 2) or (cmd == "reset" and len(args) != 1):
+            sys.exit(f"Usage: {PROG} set KEY VALUE   or   {PROG} reset KEY")
+        section, key = split_key(args[0])
+        default = DEFAULTS[section][key] if section else DEFAULTS[key]
+        value = default if cmd == "reset" else parse_value(args[1], default)
+        (cfg[section] if section else cfg)[key] = value
+        save_config(cfg, path)
+        print(f"{args[0]} = {value!r}")
+        return 0
+
+    if cmd == "edit":
+        if not path.is_file():
+            save_config(cfg, path)
+        editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+        if editor:
+            return subprocess.call([*editor.split(), str(path)])
+        return subprocess.call(["open", "-t", str(path)] if sys.platform == "darwin" else ["xdg-open", str(path)])
+
+    print(f"Unknown command {cmd!r}. Run '{PROG} help' for the list.", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
