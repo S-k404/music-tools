@@ -16,17 +16,19 @@ Usage:
 """
 
 import argparse
+import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from common import (STOP, dim, find_audio, fit, folder_problem, heading, install_stop_handler, load_config, log,
-                    progress, red, require, resolve, start_log)
+                    plural, progress, red, require, resolve, start_log)
 
 require("mutagen")
 
 from fix_album_art import AUDIO_EXTS, UNSUPPORTED_EXTS, has_art
 from find_artist_art import collect as collect_artists
-from find_artist_art import has_picture, plural
+from find_artist_art import has_picture
 from find_lyrics import has_lyrics, load_checked
 from fix_misidentified_tags import SUPPORTED_EXTENSIONS, process_audio_file
 
@@ -35,7 +37,43 @@ def fact(label: str, value) -> None:
     log(f"  {dim(fit(label, 11))} {value}")
 
 
-def _scoped_files(cfg: dict, section: str, exts: set, label: str):
+ALL_EXTS = AUDIO_EXTS | UNSUPPORTED_EXTS | SUPPORTED_EXTENSIONS
+
+
+class Library:
+    """The music folder, walked once for the whole report instead of once per section. A section's
+    configured folders usually sit inside it, so their files are picked out of this one listing."""
+
+    def __init__(self, music_dir):
+        self.root = Path(music_dir).expanduser()
+        self._files = None
+
+    def _all(self) -> list:
+        if self._files is None:
+            self._files = list(find_audio([self.root], ALL_EXTS))
+        return self._files
+
+    def _inside(self, folder: Path) -> bool:
+        """Whether this folder's files are all in the shared listing (same path, no symlinks in between)."""
+        if folder == self.root:
+            return folder.is_dir()
+        try:
+            rel = folder.relative_to(self.root)
+        except ValueError:
+            return False
+        return folder.is_dir() and os.path.realpath(folder) == os.path.join(os.path.realpath(self.root), rel)
+
+    def files(self, folders: list, exts: set) -> list:
+        out = []
+        for folder in folders:
+            if self._inside(folder):
+                out += [p for p in self._all() if p.suffix.lower() in exts and p.is_relative_to(folder)]
+            else:
+                out += find_audio([folder], exts)
+        return out
+
+
+def _scoped_files(cfg: dict, section: str, exts: set, label: str, library: Library):
     """Files in this section's configured folders, or None (after logging why) if a folder can't be read."""
     folders = [resolve(f, cfg["music_dir"]) for f in cfg[section]["folders"]]
     for f in folders:
@@ -43,11 +81,11 @@ def _scoped_files(cfg: dict, section: str, exts: set, label: str):
         if problem:
             log(f"  {red('✗')} {label}: can't read {f} ({problem})")
             return None, folders
-    return list(find_audio(folders, exts)), folders
+    return library.files(folders, exts), folders
 
 
-def art_stats(cfg: dict, workers: int, quiet: bool) -> None:
-    files, folders = _scoped_files(cfg, "album_art", AUDIO_EXTS | UNSUPPORTED_EXTS, "Cover art")
+def art_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None:
+    files, folders = _scoped_files(cfg, "album_art", AUDIO_EXTS | UNSUPPORTED_EXTS, "Cover art", library)
     if files is None:
         return
     capable = [p for p in files if p.suffix.lower() in AUDIO_EXTS]
@@ -58,8 +96,8 @@ def art_stats(cfg: dict, workers: int, quiet: bool) -> None:
     fact("Cover art", f"{have}/{len(capable)} have art  ({plural(len(folders), 'folder')} configured){extra}")
 
 
-def artist_stats(cfg: dict, workers: int, quiet: bool) -> None:
-    files, folders = _scoped_files(cfg, "artist_art", AUDIO_EXTS | UNSUPPORTED_EXTS, "Artist pics")
+def artist_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None:
+    files, folders = _scoped_files(cfg, "artist_art", AUDIO_EXTS | UNSUPPORTED_EXTS, "Artist pics", library)
     if files is None:
         return
     jobs = collect_artists(files, workers, quiet)
@@ -68,8 +106,8 @@ def artist_stats(cfg: dict, workers: int, quiet: bool) -> None:
     fact("Artist pics", f"{have}/{len(jobs)} artists have a picture")
 
 
-def lyrics_stats(cfg: dict, workers: int, quiet: bool) -> None:
-    files, folders = _scoped_files(cfg, "lyrics", AUDIO_EXTS, "Lyrics")
+def lyrics_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None:
+    files, folders = _scoped_files(cfg, "lyrics", AUDIO_EXTS, "Lyrics", library)
     if files is None:
         return
     checked = load_checked()
@@ -88,13 +126,13 @@ def lyrics_stats(cfg: dict, workers: int, quiet: bool) -> None:
     fact("Lyrics", f"{saved} saved  ·  {english} English (skipped)  ·  {notfound} not on lrclib  ·  {pending} pending")
 
 
-def tag_stats(cfg: dict, workers: int, quiet: bool) -> None:
+def tag_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None:
     problem = folder_problem(cfg["music_dir"])
     if problem:
         log(f"  {red('✗')} Tag check: can't read {cfg['music_dir']} ({problem})")
         return
     opts = {**cfg["tags"], "dry_run": True, "only_severe": True, "only_mismatched": False, "filter": None}
-    files = list(find_audio([cfg["music_dir"]], SUPPORTED_EXTENSIONS))
+    files = library.files([library.root], SUPPORTED_EXTENSIONS)
     with ThreadPoolExecutor(workers) as pool:
         results = list(progress(pool.map(lambda p: process_audio_file(p, opts), files), len(files), "Checking tags", quiet))
     severe = sum(r is not None for r in results)
@@ -121,10 +159,11 @@ def main():
     quiet = args.no_progress
     heading("Library stats", "read-only, no network")
 
+    library = Library(cfg["music_dir"])
     for section_fn in SECTIONS:
         if STOP.is_set():
             break
-        section_fn(cfg, workers, quiet)
+        section_fn(cfg, workers, quiet, library)
     print()
 
 

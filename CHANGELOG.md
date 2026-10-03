@@ -1,5 +1,24 @@
 # Changelog
 
+## Changed: faster, with less duplicated code (no change in what the tools do)
+
+- **`mt stats` walks the library once** instead of once per section (cover art, artist pictures,
+  lyrics, tags), and the tag check stops after reading the title for files that aren't a severe mismatch.
+- **`find_lyrics.py` / `find_artist_art.py`**: splitting "already done" from "to do" was quadratic (every
+  `in` check compared whole dataclasses); it is now one pass. 3.7 s -> under 1 ms for 4,650 songs.
+- **Connections are reused.** lrclib, Deezer, Google/MyMemory/DeepL/Claude and thumbnail requests keep one
+  connection per worker thread (`common.fetch_url`) instead of a new TLS handshake per request. Proxy
+  settings are still honoured (those requests go through urllib as before).
+- **lrclib answers are remembered for 10 minutes**, so spelling variants of one song that boil down to the
+  same query aren't asked twice.
+- **A song's tags are read once** in the lyrics tool (embedded lyrics reuse the already-parsed file).
+- **`pypinyin` loads on first use**: startup of `mt stats` / `mt duplicates` / the tag fixer drops from ~280 ms to ~120 ms.
+- Shared `plural` and `atomic_write` helpers replace three and three copies; removed unused code
+  (`magenta`, `sky`, `BACKEND_NAMES`, the unreachable `duration_of` fallback, the duplicate `_norm`).
+- Tests: 168 (17 new, covering connection reuse against a local server, the lrclib cache, `atomic_write`
+  and the single-walk library). Without `mutagen`/Pillow installed the test modules now skip with a
+  message instead of failing at import. CI caches pip.
+
 ## Added: a duplicate-song finder and a one-screen library stats view
 
 Two new report-only tools, wired into `mt` and the interactive menu the same way as the

@@ -17,6 +17,7 @@ one, so a missing package lowers the quality instead of breaking the run:
 you when something is missing instead of quietly leaving the column empty.
 """
 
+import importlib.util
 import re
 import threading
 import unicodedata
@@ -96,18 +97,35 @@ def romanize_japanese(text: str) -> str:
 
 
 # ---------------------------------------------------------------- Chinese
-try:
-    from pypinyin import Style, pinyin as _pinyin
-except ImportError:
-    _pinyin = None
+_pinyin_lock = threading.Lock()
+_pinyin_engine = None   # (pinyin function, Style) once loaded, False if pypinyin isn't installed; loaded on first
+                        # use because importing pypinyin takes ~150 ms, and most tools never romanize Chinese
+
+
+def _pinyin():
+    global _pinyin_engine
+    with _pinyin_lock:
+        if _pinyin_engine is None:
+            try:
+                from pypinyin import Style, pinyin
+                _pinyin_engine = (pinyin, Style)
+            except ImportError:
+                _pinyin_engine = False
+        return _pinyin_engine
+
+
+def _pinyin_installed() -> bool:
+    return importlib.util.find_spec("pypinyin") is not None
 
 _ZH_PUNCT = str.maketrans({"，": ",", "。": ".", "！": "!", "？": "?", "：": ":", "；": ";", "、": ",", "（": "(", "）": ")"})
 
 
 def romanize_chinese(text: str) -> str:
-    if not _pinyin:
+    engine = _pinyin()
+    if not engine:
         return ""
-    parts = (syllable[0].strip() for syllable in _pinyin(text, style=Style.TONE, errors="default") if syllable)
+    pinyin, Style = engine
+    parts = (syllable[0].strip() for syllable in pinyin(text, style=Style.TONE, errors="default") if syllable)
     return " ".join(p for p in parts if p).translate(_ZH_PUNCT)
 
 
@@ -153,7 +171,7 @@ def available(lang: str) -> bool:
     if code == "ja":
         return bool(_japanese_engine()[0])
     if code == "zh":
-        return _pinyin is not None
+        return _pinyin_installed()
     if code == "ru":
         return True
     return False
@@ -163,7 +181,7 @@ def status() -> dict:
     """Which engine each language uses ('' = none installed), e.g. {'ja': 'cutlet', 'ko': 'korean-romanizer', 'zh': 'pypinyin'}."""
     return {"ja": _japanese_engine()[0],
             "ko": "korean-romanizer" if _KoreanRomanizer else "built-in",
-            "zh": "pypinyin" if _pinyin else "",
+            "zh": "pypinyin" if _pinyin_installed() else "",
             "ru": "built-in"}
 
 
