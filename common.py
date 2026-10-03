@@ -2,7 +2,11 @@
 
 import atexit
 import copy
+import errno
+import functools
+import http.client
 import importlib.util
+import io
 import json
 import os
 import re
@@ -11,6 +15,9 @@ import sys
 import threading
 import time
 import unicodedata
+import urllib.error
+import urllib.parse
+import urllib.request
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -228,9 +235,95 @@ def save_config(cfg: dict, path: Path) -> None:
         if isinstance(values, dict):
             lines += ["", f"[{section}]"] + [f"{k} = {_toml_value(v)}" for k, v in values.items()]
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    atomic_write(path, "\n".join(lines) + "\n")
+
+
+def atomic_write(path: Path, data) -> None:
+    """Write str/bytes to `path` through a hidden temp file, so a crash never leaves half a file.
+    The temp file is removed if the write fails; the error (OSError) is left for the caller."""
+    tmp = path.with_name(f".{path.name}.tmp")
+    try:
+        if isinstance(data, str):
+            tmp.write_text(data, encoding="utf-8")
+        else:
+            tmp.write_bytes(data)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+# ---------------------------------------------------------------- web requests
+# One kept-alive connection per thread and host, so a run of requests to the same service (lrclib,
+# Deezer, Google Translate...) pays for the TLS handshake once per worker instead of once per request.
+# Failures raise urllib.error.HTTPError / URLError, exactly as urllib.request.urlopen does, so callers
+# keep their existing error handling.
+_connections = threading.local()
+_STALE = (http.client.RemoteDisconnected, http.client.CannotSendRequest, http.client.ImproperConnectionState,
+          BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
+_REDIRECTS = (301, 302, 303, 307, 308)
+
+
+@functools.lru_cache(maxsize=None)
+def _via_proxy(scheme: str, host: str) -> bool:
+    """urllib honours HTTP(S)_PROXY and the system proxy settings; http.client doesn't, so those go through urllib."""
+    try:
+        return bool(urllib.request.getproxies().get(scheme)) and not urllib.request.proxy_bypass(host)
+    except Exception:
+        return True
+
+
+def _drop_connection(key) -> None:
+    conn = getattr(_connections, "pool", {}).pop(key, None)
+    if conn is not None:
+        conn.close()
+
+
+def fetch_url(url: str, data=None, headers=None, timeout: float = 20, max_bytes: int = None, _hops: int = 0) -> bytes:
+    """GET (POST when `data` is given) and return the body. With `max_bytes`, at most max_bytes + 1 bytes are
+    read, so the caller can tell the body was bigger without downloading all of it."""
+    parts = urllib.parse.urlsplit(url)
+    scheme, host = parts.scheme, parts.hostname or ""
+    if scheme not in ("http", "https") or _via_proxy(scheme, host):
+        with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=headers or {}), timeout=timeout) as r:
+            return r.read() if max_bytes is None else r.read(max_bytes + 1)
+    port = parts.port or (443 if scheme == "https" else 80)
+    key = (scheme, host, port)
+    target = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+    pool = _connections.__dict__.setdefault("pool", {})
+    for attempt in (0, 1):
+        conn = pool.get(key)
+        reused = conn is not None
+        if conn is None:
+            cls = http.client.HTTPSConnection if scheme == "https" else http.client.HTTPConnection
+            conn = pool[key] = cls(host, port, timeout=timeout)
+        conn.timeout = timeout
+        try:
+            if conn.sock is not None:
+                conn.sock.settimeout(timeout)
+            conn.request("POST" if data is not None else "GET", target, body=data, headers=headers or {})
+            resp = conn.getresponse()
+            body = resp.read() if max_bytes is None else resp.read(max_bytes + 1)
+            if max_bytes is not None and len(body) > max_bytes:
+                _drop_connection(key)  # the rest of the body is still on the wire
+        except (OSError, http.client.HTTPException) as e:
+            _drop_connection(key)
+            stale = isinstance(e, _STALE) or getattr(e, "errno", None) == errno.EBADF
+            if stale and reused and attempt == 0:
+                continue  # the server closed an idle connection; one fresh try
+            raise urllib.error.URLError(e) from e
+        break
+    if resp.status in _REDIRECTS and _hops < 5 and resp.getheader("Location"):
+        same = resp.status in (307, 308)
+        return fetch_url(urllib.parse.urljoin(url, resp.getheader("Location")), data if same else None, headers,
+                         timeout, max_bytes, _hops + 1)
+    if resp.status >= 400:
+        raise urllib.error.HTTPError(url, resp.status, resp.reason, resp.headers, io.BytesIO(body))
+    return body
+
+
+def plural(n: int, word: str) -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
 def resolve(folder: str, music_dir: str) -> Path:
@@ -324,8 +417,8 @@ def _c(code):
     return (lambda s: f"\x1b[{code}m{s}\x1b[0m") if COLOR else (lambda s: s)
 
 
-bold, dim, cyan, green, red, yellow, magenta = _c("1"), _c("2"), _c("36"), _c("32"), _c("31"), _c("33"), _c("35")
-pink, violet, sky = _c("38;5;205"), _c("38;5;135"), _c("38;5;81")
+bold, dim, cyan, green, red, yellow = _c("1"), _c("2"), _c("36"), _c("32"), _c("31"), _c("33")
+pink, violet = _c("38;5;205"), _c("38;5;135")
 
 
 def text_width(s: str) -> int:

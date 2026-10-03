@@ -530,6 +530,8 @@ def _process_audio_file(filepath: Path, opts: Dict[str, Any]) -> Optional[Dict[s
         return None
 
     current = get_current_tags(audio)
+    if opts["only_severe"] and not is_severe_mismatch(stem, current["title"]):
+        return None  # most files: skip the rest of the work
     parsed = parse_filename(stem)
     proposed = determine_proposed_tags(
         parsed=parsed,

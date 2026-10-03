@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from common import (STOP, bold, dim, find_audio, fit, folder_problem, heading, install_stop_handler, load_config,
-                    log, progress, require, resolve, section, start_log, text_width, yellow)
+                    log, plural, progress, require, resolve, section, start_log, text_width, yellow)
 
 require("mutagen")
 
@@ -181,10 +181,6 @@ def report(groups: list, no_artist: int, no_duration: int, total_files: int, rep
             print(dim(f"  Saved the group listing to {report_file}"))
         except OSError as e:
             print(dim(f"  ! couldn't write {report_file}: {e.strerror or e}"))
-
-
-def plural(n: int, word: str) -> str:
-    return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
 def main():

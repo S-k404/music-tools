@@ -41,14 +41,13 @@ import time
 import unicodedata
 import urllib.error
 import urllib.parse
-import urllib.request
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from common import (STOP, bold, cyan, dim, find_audio, fit, folder_problem, green, heading, install_stop_handler,
-                    load_config, log, normal_ctrl_c, pink, progress, red, require, resolve, section, start_log,
+from common import (STOP, atomic_write, bold, cyan, dim, fetch_url, find_audio, fit, folder_problem, green, heading, install_stop_handler,
+                    load_config, log, normal_ctrl_c, pink, plural, progress, red, require, resolve, section, start_log,
                     text_width, yellow)
 
 require("mutagen", "PIL")
@@ -249,8 +248,7 @@ def deezer_get(path: str, **params) -> dict:
     for attempt in range(4):
         API_LIMIT.wait()
         try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}), timeout=20) as r:
-                data = json.load(r)
+            data = json.loads(fetch_url(url, headers={"User-Agent": USER_AGENT}, timeout=20))
         except urllib.error.HTTPError as e:
             raise RuntimeError(f"Deezer answered HTTP {e.code}") from e
         except (urllib.error.URLError, TimeoutError, OSError) as e:
@@ -368,9 +366,7 @@ def youtube_channels(name: str) -> list:
 # ---------------------------------------------------------------- images
 
 def download(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        data = r.read(MAX_IMAGE_BYTES + 1)
+    data = fetch_url(url, headers={"User-Agent": USER_AGENT}, timeout=30, max_bytes=MAX_IMAGE_BYTES)
     if len(data) > MAX_IMAGE_BYTES:
         raise ValueError("image is bigger than 20 MB")
     return data
@@ -588,21 +584,14 @@ def save_picture(out_dir: Path, pick: Pick, force: bool) -> None:
         pick.saved = "exists"
         return
     target = out_dir / (safe_filename(pick.name) + ".jpg")
-    tmp = target.with_name(f".{target.name}.tmp")
     try:
-        tmp.write_bytes(pick.image)
-        os.replace(tmp, target)
+        atomic_write(target, pick.image)
         pick.saved = "saved"
     except OSError as e:
-        tmp.unlink(missing_ok=True)
         pick.saved = f"error: {e.strerror or e}"
 
 
 # ---------------------------------------------------------------- main
-
-def plural(n: int, word: str) -> str:
-    return f"{n} {word}" if n == 1 else f"{n} {word}s"
-
 
 def compact(n: int) -> str:
     """1234567 -> '1.2M', 8500 -> '8.5K'."""
@@ -714,8 +703,9 @@ def main():
         jobs = collect(files, workers, quiet)
 
     # 2. which of them still need a picture
-    have = [j for j in jobs if not opts["force"] and has_picture(out_dir, j.name)]
-    todo = [j for j in jobs if j not in have]
+    have, todo = [], []
+    for j in jobs:  # one pass; `j not in have` would compare whole dataclasses field by field, O(n^2)
+        (have if not opts["force"] and has_picture(out_dir, j.name) else todo).append(j)
     fact("Artists", f"{len(jobs)}  {dim('·')}  {len(have)} already have a picture  {dim('·')}  {bold(str(len(todo)))} to find")
     fact("Saving to", str(out_dir))
     if args.list_missing:

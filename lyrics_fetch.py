@@ -9,8 +9,11 @@ is reported as not found instead of getting some other song's lyrics.
 """
 
 import re
+import threading
+import time
 import unicodedata
 from dataclasses import dataclass
+from urllib.parse import urlencode
 
 from lyrics_lang import fold_layers, guess_language, norm
 from lyrics_render import Line
@@ -39,14 +42,31 @@ class Lyrics:
     source: str = "lrclib.net"
 
 
+_cache: dict = {}            # (endpoint, sorted params) -> (time answered, parsed JSON)
+_cache_lock = threading.Lock()
+CACHE_SECONDS, CACHE_MAX = 600, 4000
+
+
 def api_get(path: str, **params) -> object:
-    """GET one lrclib endpoint and return the parsed JSON, or None on a 404. Busy servers are retried."""
-    from urllib.parse import urlencode
-    query = urlencode({k: v for k, v in params.items() if v not in (None, "")})
+    """GET one lrclib endpoint and return the parsed JSON, or None on a 404. Busy servers are retried.
+    Answers are remembered for a few minutes: a song's spelling variants often boil down to the same
+    query, and there's no point asking lrclib the same thing twice in one run."""
+    params = {k: v for k, v in params.items() if v not in (None, "")}
+    key = (path, tuple(sorted(params.items())))
+    now = time.monotonic()
+    with _cache_lock:
+        hit = _cache.get(key)
+    if hit and now - hit[0] < CACHE_SECONDS:
+        return hit[1]
     try:
-        return request_json(f"{API}/{path}?{query}", "lrclib.net", headers={"User-Agent": USER_AGENT})
+        data = request_json(f"{API}/{path}?{urlencode(params)}", "lrclib.net", headers={"User-Agent": USER_AGENT})
     except NetError as e:
         raise LyricsError(str(e)) from e
+    with _cache_lock:
+        if len(_cache) >= CACHE_MAX:
+            _cache.clear()  # simple and bounded; a refill only costs a few repeated requests
+        _cache[key] = (now, data)
+    return data
 
 
 LRC_TAG_RE = re.compile(r"\[(\d+):(\d+(?:\.\d+)?)\]")
@@ -102,7 +122,7 @@ def strip_credits(lines: list, artist: str, title: str) -> list:
     return out or lines
 
 
-def _tidy(text: str) -> str:
+def tidy_title(text: str) -> str:
     """A title without (feat. X), [Official Video] and similar, for comparing and searching."""
     text = unicodedata.normalize("NFC", text)
     stripped = " ".join(re.sub(r"[\(\[（【][^\)\]）】]*[\)\]）】]", " ", text).split()).strip(" -_")
@@ -113,9 +133,6 @@ def _tidy(text: str) -> str:
     # discarding the entire thing
     inner = re.sub(r"^\s*[\(\[（【]\s*|\s*[\)\]）】]\s*$", "", text)
     return " ".join(inner.split()).strip(" -_") or " ".join(text.split()).strip(" -_")
-
-
-tidy_title = _tidy
 
 
 def first_artist(artist: str) -> str:
@@ -150,12 +167,12 @@ def best_hit(hits: list, artist: str, title: str, duration: float = None) -> dic
     Instrumentals and records of a different length (another recording) are ignored.
     """
     from fix_album_art import match_score
-    want, best, best_score = _tidy(title), None, 0.0
+    want, best, best_score = tidy_title(title), None, 0.0
     for hit in hits:
         if not _usable(hit):
             continue
         exact = bool(hit.get("_exact"))  # lrclib's own exact match on artist + title (+ length)
-        t_score = match_score(want, _tidy(str(hit.get("trackName") or "")))
+        t_score = match_score(want, tidy_title(str(hit.get("trackName") or "")))
         gap = _duration_gap(hit, duration)
         a_score = _artist_score(artist, str(hit.get("artistName") or "")) if artist else None
         if not exact:
@@ -188,7 +205,7 @@ def fetch(artist: str, title: str, album: str = "", duration: float = None) -> L
     """
     artist, title = artist.strip(), title.strip()
     attempts = [(artist, title)]
-    tidy_pair = (first_artist(artist), _tidy(title))
+    tidy_pair = (first_artist(artist), tidy_title(title))
     if tidy_pair[1] and tidy_pair != attempts[0]:
         attempts.append(tidy_pair)
 

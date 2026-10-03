@@ -35,12 +35,11 @@ import subprocess
 import sys
 import unicodedata
 import urllib.parse
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from common import (HERE, STOP, find_audio, start_log, install_stop_handler, load_config, log,
+from common import (HERE, STOP, fetch_url, find_audio, start_log, install_stop_handler, load_config, log,
                     normal_ctrl_c, progress, require, resolve)
 
 require("mutagen", "PIL")
@@ -128,14 +127,18 @@ def has_art(path: Path) -> bool:
     return False
 
 
-def read_tags(path: Path) -> dict:
+def read_tags(path: Path, keep_file: bool = False) -> dict:
     """Return title/artist/duration plus any free text that might hold a YouTube URL. Reads the file
-    once, so callers that also need the length don't have to parse it again themselves."""
-    out = {"title": "", "artist": "", "text": "", "duration": None}
+    once, so callers that also need the length don't have to parse it again themselves. With
+    `keep_file`, the parsed mutagen object comes back as "file" too (None if unreadable), for callers
+    that want to look at more tags without opening the file a second time."""
+    out = {"title": "", "artist": "", "text": "", "duration": None, "file": None}
     try:
         f = MutagenFile(path)
     except Exception:
         return out
+    if keep_file:
+        out["file"] = f
     if f and getattr(f, "info", None) is not None:
         try:
             out["duration"] = float(f.info.length)
@@ -250,8 +253,7 @@ def search_queries(path: Path, tags: dict) -> list:
 def download_thumbnail(video_id: str) -> bytes:
     for name in ("maxresdefault", "sddefault", "hqdefault"):
         try:
-            with urllib.request.urlopen(f"https://i.ytimg.com/vi/{video_id}/{name}.jpg", timeout=20) as r:
-                data = r.read()
+            data = fetch_url(f"https://i.ytimg.com/vi/{video_id}/{name}.jpg", timeout=20)
             # YouTube serves a 120x90 placeholder when a size doesn't exist
             if Image.open(io.BytesIO(data)).width > 120:
                 return data
