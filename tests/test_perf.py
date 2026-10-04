@@ -249,15 +249,35 @@ class ReadTagsTests(unittest.TestCase):
             return library_stats.read_tags(Path(name), self.OPTS)
 
     def test_a_song_with_title_and_artist_is_tagged(self):
-        self.assertEqual(self._read({"title": "Song", "artist": "Artist"}), (False, False))
+        self.assertEqual(self._read({"title": "Song", "artist": "Artist"}), (False, []))
 
     def test_a_song_without_a_title_or_without_an_artist_counts_as_untagged(self):
-        self.assertEqual(self._read({"title": None, "artist": "Artist"})[1], True)
-        self.assertEqual(self._read({"title": "Song", "artist": ""})[1], True)
+        self.assertEqual(self._read({"title": None, "artist": "Artist"})[1], ["title"])
+        self.assertEqual(self._read({"title": "Song", "artist": ""})[1], ["artist"])
+        self.assertEqual(self._read({"title": None, "artist": None})[1], ["title", "artist"])
 
     def test_a_clearly_wrong_title_is_a_severe_mismatch(self):
-        self.assertEqual(self._read({"title": "Totally Different Words", "artist": "A"}, "Moonlight Walk.flac"), (True, False))
+        self.assertEqual(self._read({"title": "Totally Different Words", "artist": "A"}, "Moonlight Walk.flac"), (True, []))
 
     def test_a_file_mutagen_cannot_read_is_skipped(self):
         with mock.patch.object(library_stats.mutagen, "File", return_value=None):
             self.assertIsNone(library_stats.read_tags(Path("x.flac"), self.OPTS))
+
+
+class ListUntaggedTests(unittest.TestCase):
+    def test_the_tag_check_remembers_which_songs_lack_tags_and_the_list_shows_them(self):
+        lib = library_stats.Library("/music")
+        files = [Path("/music/b.flac"), Path("/music/a.flac"), Path("/music/ok.flac")]
+        results = {files[0]: (False, ["artist"]), files[1]: (False, ["title", "artist"]), files[2]: (False, [])}
+        with mock.patch.object(library_stats, "folder_problem", return_value=None), \
+             mock.patch.object(lib, "files", return_value=files), \
+             mock.patch.object(library_stats, "read_tags", side_effect=lambda p, o: results[p]):
+            library_stats.tag_stats({"music_dir": "/music", "tags": {}}, 1, True, lib)
+        self.assertEqual(lib.untagged, [(Path("/music/a.flac"), ["title", "artist"]), (Path("/music/b.flac"), ["artist"])])
+        lines = []
+        with mock.patch.object(library_stats, "log", side_effect=lines.append):
+            library_stats.list_untagged(lib)
+        text = "\n".join(lines)
+        self.assertIn("a.flac", text)
+        self.assertIn("no title or artist", text)
+        self.assertIn("no artist", text)

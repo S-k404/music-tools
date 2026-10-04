@@ -459,10 +459,12 @@ artist pictures, how much lyrics coverage, and whether any tags look clearly
 wrong — the same things `--list-missing` on each tool already tells you,
 gathered into one view. Read-only and offline: nothing is looked up online
 and nothing is written. Each section is scoped to that tool's own configured
-folders; the tag check always covers the whole library.
+folders; the tag check always covers the whole library, and also counts songs with no
+title or no artist tag.
 
 ```bash
 python3 library_stats.py
+python3 library_stats.py --list-untagged   # also list those songs (mt check --list-untagged)
 ```
 
 ## library_layout.py  (`mt tidy`)
