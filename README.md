@@ -1,63 +1,19 @@
 # music-tools
 
-A small, focused toolkit for cleaning up a local music library — especially
-one built from YouTube downloads via `yt-dlp`, where cover art, artist
-pictures, lyrics and tags are usually missing or wrong. Every tool is
-read-first (list/dry-run modes that touch nothing), multi-threaded, and driven
-by one shared `config.toml` so you only have to set your music folder once.
-Day to day, the only command you need is `mt` — everything below is also
-reachable from its interactive menu.
-
-| Script | What it does |
-| --- | --- |
-| `fix_album_art.py` | Finds songs with no embedded cover art and adds the matching YouTube thumbnail |
-| `find_artist_art.py` | Finds a picture for every artist in your library (from Deezer, with a YouTube fallback) and saves it as `<Artist>.jpg` |
-| `find_lyrics.py` | Finds lyrics for every song (from lrclib.net) and saves original + romanization + English next to it |
-| `fix_misidentified_tags.py` | Fixes songs that MusicBrainz Picard tagged as the wrong album track, rebuilding tags from the filename |
-| `find_duplicates.py` | Reports songs that are probably the same recording saved more than once (report only — nothing is deleted) |
-| `organize_music.py` | Organizes songs and companion lyrics/images into `Artist/Album/` folders for Jellyfin / Plex |
-| `run_all.py` | Auto mode: tidies junk and duplicate folders, then art, artist pictures, lyrics and (optionally) organization, in the smart order, asking once |
-| `library_stats.py` | A one-screen, read-only health check: cover art, artist pictures, lyrics and tag coverage |
-| `library_layout.py` | Checks the folder layout: duplicate album folders, junk files, odd names. Report only; `--clean` / `--merge-albums` preview fixes and `--apply` does them (with an undo file) |
-
-All of them show progress bars, work on several files at once, and read their
-settings from one `config.toml`. Day to day you only need one command, `mt`
-(see below).
-
-## Requirements
-
-- Python 3.11 or newer (checked at startup; `common.py` exits with a clear
-  message on anything older).
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`brew install yt-dlp`) for the
-  YouTube searches `fix_album_art.py` and `find_artist_art.py` fall back to.
-- Python packages from `requirements.txt`: `mutagen` (reading/writing tags),
-  `Pillow` (cropping/converting cover art), `tqdm` (progress bars). These are
-  required; `./setup.sh` installs them for you.
-- Optional, for lyrics romanization (`find_lyrics.py` / `mt lyrics`): `cutlet`
-  + `unidic-lite` (Japanese, ~250 MB), `pypinyin` (Chinese), and
-  `korean-romanizer` (Korean). Without them, that column is just left out, and
-  Korean falls back to a smaller built-in table. Russian needs no package.
-
-## Setup
+A small toolkit for cleaning up a local music library, built for collections that come from
+YouTube downloads (`yt-dlp`), where cover art, artist pictures, lyrics and tags are usually
+missing or wrong. Every tool previews before it changes anything, runs on several threads, and
+reads one shared `config.toml`, so you set your music folder once.
 
 ```bash
-./setup.sh
+./setup.sh                  # once: installs the packages and creates config.toml
+mt dir "/path/to/Music"     # point it at your library
+mt auto --dry-run           # preview everything; then run  mt auto
 ```
 
-This installs the Python packages into a private `.venv` folder (so it works
-even where `pip install` is blocked, e.g. Homebrew Python) and creates
-`config.toml` from `config.example.toml`. The `music-tools` / `mt` command uses
-that `.venv` automatically when it exists; the scripts run on their own with
-`.venv/bin/python`, e.g. `.venv/bin/python fix_album_art.py --list-missing`.
-If the packages in `requirements.txt` are already installed, plain `python3` works too.
-The lyrics tool's romanization needs `cutlet` + `unidic-lite` (Japanese, about 250 MB),
-`pypinyin` (Chinese) and `korean-romanizer` (Korean) from `requirements.txt`; without
-them it says so at the start and leaves that column out. Russian needs no package at
-all (a small built-in table).
+## Quick commands
 
-## The `music-tools` command (`mt`)
-
-### Quick commands
+Set up the `mt` alias once (last section of "The `mt` command" below), then type these from anywhere.
 
 | Type this | It does |
 |---|---|
@@ -70,15 +26,50 @@ all (a small built-in table).
 | `mt help COMMAND` | every option of one command |
 
 The older names (`all`, `art`, `layout`, `stats`, ...) still work, and small slips in flags are forgiven
-(`--dryrun`, `--dry_run` and `-n` all mean `--dry-run`; `-y` means `--yes`). A mistyped command gets a "Did you mean ...?".
+(`--dryrun`, `--dry_run` and `-n` all mean `--dry-run`; `-y` means `--yes`). A mistyped command gets a
+"Did you mean ...?".
 
+## What's in the box
 
-Set up the `mt` alias once (see the end of this section), then just type `mt`
-from anywhere. `mt` on its own opens an interactive menu: arrow keys to move,
-Enter to choose, Space to switch options on/off, `q` to go back. From there you
-can find songs without art, add art, retry failures, fix tags, switch folders
-(type a path with Tab completion or drag a folder in from Finder), change every
-setting, and read the logs of previous runs.
+| Script | Command | What it does |
+| --- | --- | --- |
+| `fix_album_art.py` | `mt covers` | Finds songs with no embedded cover art and adds the matching YouTube thumbnail |
+| `find_artist_art.py` | `mt artists` | Finds a picture for every artist (Deezer, with a YouTube fallback) and saves it as `<Artist>.jpg`, or `Artist/artist.jpg` |
+| `find_lyrics.py` | `mt lyrics` | Finds lyrics (lrclib.net) and saves original + romanization + English next to each song |
+| `fix_misidentified_tags.py` | `mt fix` | Fixes songs that MusicBrainz Picard tagged as the wrong album track, rebuilding tags from the filename |
+| `find_duplicates.py` | `mt dupes` | Reports songs that are probably the same recording saved twice (report only; nothing is deleted) |
+| `library_layout.py` | `mt tidy` | Finds duplicate album folders, junk and odd names; merges and cleans them with an undo file |
+| `organize_music.py` | `mt organize` | Sorts songs and companion lyrics/images into `Artist/Album/` folders for Jellyfin / Plex |
+| `run_all.py` | `mt auto` | Runs the tools above in the smart order, asking once |
+| `library_stats.py` | `mt check` | A one-screen, read-only health check |
+
+## Requirements
+
+- Python 3.11 or newer (`common.py` exits with a clear message on anything older).
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`brew install yt-dlp`) for the YouTube searches.
+- Python packages from `requirements.txt`: `mutagen` (tags), `Pillow` (cover art), `tqdm` (progress bars).
+  `./setup.sh` installs them.
+- Optional, for lyrics romanization: `cutlet` + `unidic-lite` (Japanese, about 250 MB), `pypinyin`
+  (Chinese) and `korean-romanizer` (Korean). Without them that column is left out (and the tool says so);
+  Korean falls back to a smaller built-in table. Russian needs no package.
+
+## Setup
+
+```bash
+./setup.sh
+```
+
+This installs the packages into a private `.venv` folder (so it works even where `pip install` is
+blocked, e.g. Homebrew Python) and creates `config.toml` from `config.example.toml`. The
+`music-tools` / `mt` command uses that `.venv` automatically; the scripts run on their own with
+`.venv/bin/python`, e.g. `.venv/bin/python fix_album_art.py --list-missing`. If the packages are already
+installed, plain `python3` works too.
+
+## The `mt` command
+
+`mt` on its own opens an interactive menu: arrow keys to move, Enter to choose, Space to switch options
+on/off, `q` to go back. From there you can do everything below, switch folders (type a path with Tab
+completion or drag a folder in from Finder), change every setting, and read the logs of previous runs.
 
 ```
   ╔╦╗╦ ╦╔═╗╦╔═╗  ╔╦╗╔═╗╔═╗╦  ╔═╗     /\_/\   ♪
@@ -94,53 +85,53 @@ setting, and read the logs of previous runs.
     2 Add missing art           search YouTube and add covers
     3 Retry failed songs        songs that didn't get art last time
     4 Find artist pictures      a photo for every artist, from Deezer
-    5 Find lyrics               original + romanization + English, from lrclib.net
+    5 Find lyrics               translate foreign songs: original + romaji + English
     6 Fix wrong tags            rebuild tags from filenames
-    7 Find duplicate songs      report only — nothing is ever deleted
-    8 Library stats             one-screen health check, read-only
-    9 Check and tidy folders     duplicate albums, junk files — merge them all in one go
-   10 Folders                   change which folders are used
-   11 Settings                  matching, cropping, tag options…
-   12 Logs                      see what previous runs did
-   13 Help                      all commands
+    7 Find duplicate songs      report only; nothing is ever deleted
+    8 Organize library          sort songs into Artist/Album for Jellyfin
+    9 All-in-one run            art + artist pictures + lyrics in one go
+   10 Library stats             one-screen health check, read-only
+   11 Check and tidy folders    duplicate albums, junk files; merge them all in one go
+   12 Folders                   change which folders are used
+   13 Settings                  matching, cropping, tag options…
+   14 Logs                      see what previous runs did
+   15 Help                      all commands
       Quit
 ```
 
-The main menu has a colour-faded title and a cat that listens along: it flicks
-its tail, blinks now and then, and has music notes drifting past. In a narrow
-window the cat steps aside and the title shrinks to one line. To turn the
-animation off, set `MUSIC_TOOLS_NO_ANIMATION=1` (and `NO_COLOR=1` for no colours).
-
+The main menu has a colour-faded title and a cat that listens along. In a narrow window the cat steps
+aside. To turn the animation off set `MUSIC_TOOLS_NO_ANIMATION=1` (and `NO_COLOR=1` for no colours).
 Every run is saved to `logs/` (the last 200 are kept; turn off with `save_logs = false`).
 
-Everything is also available as direct commands; `mt help` lists them.
+Everything is also available as direct commands; `mt help` lists them all.
 
 ```bash
-./music-tools where                          # show current folders and config
-./music-tools dir "/path/to/Music"           # set the music library folder
-./music-tools folders use "YouTube" "Mixes"  # switch the folders checked for art
-./music-tools folders add ~/Downloads/Music  # add one
-./music-tools folders remove "Mixes"         # remove one
-./music-tools set album_art.min_match 0.9    # change any setting
-./music-tools missing                        # list songs without art
-./music-tools art                            # add missing art
-./music-tools artists                        # find a picture for every artist
-./music-tools tags --only-severe --apply     # fix wrong tags
-./music-tools duplicates                     # find likely duplicate songs
-./music-tools organize                       # sort songs into Artist/Album for Jellyfin
-./music-tools all                            # run art + artists + lyrics in one go
-./music-tools all --organize                 # full pass: art + artists + lyrics + organize
-./music-tools stats                          # one-screen library health check
+mt where                          # show current folders and config
+mt dir "/path/to/Music"           # set the music library folder
+mt folders use "YouTube" "Mixes"  # switch the folders checked for art
+mt folders add ~/Downloads/Music  # add one
+mt folders remove "Mixes"         # remove one
+mt set album_art.min_match 0.9    # change any setting
+mt missing                        # list songs without art
+mt covers                         # add missing art
+mt artists                        # find a picture for every artist
+mt lyrics                         # find and translate lyrics
+mt fix --only-severe --apply      # fix wrong tags
+mt dupes                          # find likely duplicate songs
+mt tidy                           # merge duplicate folders, delete junk (asks first)
+mt undo                           # reverse the last tidy
+mt organize                       # sort songs into Artist/Album for Jellyfin
+mt auto                           # everything, in the smart order
+mt check                          # one-screen library health check
 ```
 
-To run it from anywhere as `mt`, add an alias to your shell:
+To run it from anywhere as `mt`, add an alias to your shell (from the repo folder):
 
 ```bash
 echo "alias mt='python3 $PWD/music-tools'" >> ~/.zshrc && source ~/.zshrc
 ```
 
-After that every example in this README works as `mt <command>`, e.g. `mt artists`,
-`mt art --dry-run`, `mt tags --apply`.
+After that every example in this README works as `mt <command>`. Without the alias use `./music-tools`.
 
 ## Choosing folders and settings
 
@@ -211,7 +202,7 @@ before starting the next; "after" is the current two-pool version.
 - Artists Deezer doesn't have fall back to YouTube, which is throttled harder
   (about 3 searches a second), so runs with many of those take longer.
 
-## fix_album_art.py
+## fix_album_art.py  (`mt covers`)
 
 For each song without art it tries, in order:
 
@@ -365,7 +356,7 @@ mt lyrics --report missing.txt               # save the not-found/failed list (p
 mt set lyrics.translators "google,mymemory"  # which services to try, in order
 ```
 
-## fix_misidentified_tags.py
+## fix_misidentified_tags.py  (`mt fix`)
 
 Live sets, mixes and unreleased tracks often have good filenames but wrong tags
 from Picard (e.g. a Boiler Room set tagged as a studio album track). This sets
@@ -385,7 +376,7 @@ python3 fix_misidentified_tags.py --filter "boiler room" --apply
 a subtitle away from the filename. Applying to the whole library without a
 filter asks for confirmation.
 
-## find_duplicates.py  (`mt duplicates`)
+## find_duplicates.py  (`mt dupes`)
 
 Finds songs that are probably the same recording saved more than once —
 downloaded twice into different folders, or in different formats/bitrates.
@@ -437,7 +428,7 @@ mt organize "YouTube"                       # organize a specific folder
 mt organize --no-artist-art                 # don't copy artist photo to folder.jpg
 ```
 
-## run_all.py  (`mt all`)
+## run_all.py  (`mt auto`)
 
 Runs your cleanup pipeline sequentially in one automated pass:
 
@@ -449,16 +440,16 @@ Runs your cleanup pipeline sequentially in one automated pass:
 5. *(Optional)* **Organize**: Sort files and companion lyrics into `Artist/Album/` (`--organize`)
 
 ```bash
-mt all                                      # tidy folders (if needed) + art + artist pictures + lyrics; asks once
-mt all --yes                                # same, no question asked
-mt all --no-layout                          # skip the folder tidy step
-mt all --organize                           # full pass: art + artists + lyrics + folder organization
-mt all --tags --organize                    # tags + art + artists + lyrics + organize
-mt all --dry-run                            # preview all steps safely
-mt all "YouTube" --organize                 # process and organize a specific folder
+mt auto                                      # tidy folders (if needed) + art + artist pictures + lyrics; asks once
+mt auto --yes                                # same, no question asked
+mt auto --no-layout                          # skip the folder tidy step
+mt auto --organize                           # full pass: art + artists + lyrics + folder organization
+mt auto --tags --organize                    # tags + art + artists + lyrics + organize
+mt auto --dry-run                            # preview all steps safely
+mt auto "YouTube" --organize                 # process and organize a specific folder
 ```
 
-## library_stats.py  (`mt stats`)
+## library_stats.py  (`mt check`)
 
 A one-screen health check for your library: how much cover art, how many
 artist pictures, how much lyrics coverage, and whether any tags look clearly
@@ -471,7 +462,7 @@ folders; the tag check always covers the whole library.
 python3 library_stats.py
 ```
 
-## library_layout.py  (`mt layout`)
+## library_layout.py  (`mt tidy`)
 
 Checks how your library is laid out on disk (`Artist/Album/Track`) using folder names only; no
 tags are read. Run on its own it only **reports**:
@@ -491,7 +482,8 @@ mt layout                          # report only
 mt layout --report layout.txt      # the full lists as a text file
 mt layout --clean                  # preview: delete junk, move .lrc.bak files, remove empty folders
 mt layout --merge-albums           # preview: merge each duplicate album folder into the one with most songs
-mt layout --clean --merge-albums --apply     # do it (asks first; --yes skips the question)
+mt layout --merge-artists          # preview: merge artist folders spelled two ways
+mt tidy                            # do all of it (asks first; --yes skips the question, --dry-run previews)
 mt layout --undo --apply           # put back what the latest run moved
 ```
 
