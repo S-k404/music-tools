@@ -128,3 +128,14 @@ class DroppedConnectionTests(unittest.TestCase):
         for link in ("https://www.youtube.com/@shigureui", "https://youtube.com/channel/UCabc/videos"):
             self.assertTrue(artists.YOUTUBE_CHANNEL_URL_RE.match(link), link)
         self.assertIsNone(artists.YOUTUBE_CHANNEL_URL_RE.match("https://i.ytimg.com/vi/x/hq.jpg"))
+
+    def test_a_channel_named_after_the_artist_from_video_search_is_picked_without_asking(self):
+        real_search, real_find, real_pop = artists.search_artists, artists._find, artists.popular_video_channels
+        chan = {"name": "Whoever Official", "nb_fan": 5, "link": "https://youtube.com/channel/B", "picture_xl": "https://x/p.jpg"}
+        artists._find = lambda name: (None, "", [])
+        artists.popular_video_channels = lambda q: [chan]
+        self.addCleanup(setattr, artists, "_find", real_find)
+        self.addCleanup(setattr, artists, "popular_video_channels", real_pop)
+        job = artists._search_job(artists.Job("Whoever"), {"search_results": 5})
+        self.assertEqual(job.status, "found")
+        self.assertEqual(job.picks[0].deezer_name, "Whoever Official")
