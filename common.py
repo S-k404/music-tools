@@ -7,6 +7,7 @@ import functools
 import http.client
 import importlib.util
 import io
+import ssl
 import json
 import os
 import re
@@ -283,7 +284,7 @@ def atomic_write(path: Path, data) -> None:
 # keep their existing error handling.
 _connections = threading.local()
 _STALE = (http.client.RemoteDisconnected, http.client.CannotSendRequest, http.client.ImproperConnectionState,
-          BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
+          BrokenPipeError, ConnectionResetError, ConnectionAbortedError, ssl.SSLEOFError)
 _REDIRECTS = (301, 302, 303, 307, 308)
 
 
