@@ -18,7 +18,7 @@ Set up the `mt` alias once (last section of "The `mt` command" below), then type
 | Type this | It does |
 |---|---|
 | `mt` | opens the menu |
-| `mt auto` | everything: tidy folders, then art, artist pictures and lyrics (asks once; `--dry-run` previews) |
+| `mt auto` | tidy folders, then art, artist pictures and lyrics (asks once; `--dry-run` previews); `--everything` adds tags, duplicate removal and organizing |
 | `mt tidy` | merges duplicate folders and deletes junk (shows the list, asks first; `--dry-run` previews) |
 | `mt undo` | puts back what the last tidy moved |
 | `mt lyrics` / `mt covers` / `mt artists` | find lyrics / add album art / find artist pictures |
@@ -40,7 +40,7 @@ The older names (`all`, `art`, `layout`, `stats`, ...) still work, and small sli
 | `find_duplicates.py` | `mt dupes` | Finds songs that are probably the same recording saved twice; on request moves the lower-quality copies to the Trash and fixes the kept songs' albums |
 | `library_layout.py` | `mt tidy` | Finds duplicate album folders, junk and odd names; merges and cleans them with an undo file |
 | `organize_music.py` | `mt organize` | Sorts songs and companion lyrics/images into `Artist/Album/` folders for Jellyfin / Plex |
-| `run_all.py` | `mt auto` | Runs the tools above in the smart order, asking once |
+| `run_all.py` | `mt auto` | Runs the tools above, duplicate removal included, in the smart order, asking once |
 | `library_stats.py` | `mt check` | A one-screen, read-only health check |
 
 ## Requirements
@@ -470,10 +470,15 @@ Runs your cleanup pipeline sequentially in one automated pass:
 
 0. **Tidy folders**: delete junk, move `.lrc.bak` files, merge duplicate albums, only if the library has some (skipped when you name folders or pass `--no-layout`)
 1. *(Optional)* **Tags**: Fix misidentified tags from filenames (`--tags`)
-2. **Album art**: Search YouTube and embed missing cover art (`--auto`)
-3. **Artist pictures**: Download artist photos from Deezer / YouTube (`--auto`)
-4. **Lyrics**: Fetch, romanize, and translate lyrics from lrclib.net
-5. *(Optional)* **Organize**: Sort files and companion lyrics into `Artist/Album/` (`--organize`)
+2. *(Optional)* **Duplicates**: keep the best-quality copy of each song and move the others to the Trash (`--dedupe`, see the `mt dupes` section above). It runs after the tags so copies are matched on corrected tags, and before art and lyrics so none are fetched for copies about to go. It lists exactly which copies it would remove and asks again (`--yes` skips that). Without `--organize` it also files the kept songs under `Artist/Album/` itself.
+3. **Album art**: Search YouTube and embed missing cover art (`--auto`)
+4. **Artist pictures**: Download artist photos from Deezer / YouTube (`--auto`)
+5. **Lyrics**: Fetch, romanize, and translate lyrics from lrclib.net
+6. *(Optional)* **Organize**: Sort files and companion lyrics into `Artist/Album/` (`--organize`)
+
+The optional steps are off unless you ask, because they rewrite tags, remove files or move them. `--everything`
+switches on all three (`--tags --dedupe --organize`). In the menu's "All-in-one run" every step is a checkbox,
+duplicate removal included.
 
 ```bash
 mt auto                                      # tidy folders (if needed) + art + artist pictures + lyrics; asks once
@@ -481,7 +486,9 @@ mt auto --yes                                # same, no question asked
 mt auto --no-layout                          # skip the folder tidy step
 mt auto --organize                           # full pass: art + artists + lyrics + folder organization
 mt auto --tags --organize                    # tags + art + artists + lyrics + organize
-mt auto --dry-run                            # preview all steps safely
+mt auto --dedupe                             # also remove lower-quality duplicate songs (to the Trash)
+mt auto --everything                         # tidy + tags + duplicates + art + artists + lyrics + organize
+mt auto --everything --dry-run               # preview every step safely
 mt auto "YouTube" --organize                 # process and organize a specific folder
 ```
 

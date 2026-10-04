@@ -27,6 +27,7 @@ EVERYDAY = f"""\
 EVERYDAY COMMANDS
   {PROG}                             open the menu (arrow keys + Enter)
   {PROG} auto                        do everything: tidy folders, then art, artist pictures and lyrics
+                                     (add --everything for tags, duplicate removal and organizing too)
   {PROG} tidy                        merge duplicate folders and delete junk (shows the list, asks first)
   {PROG} undo                        put back what the last tidy moved
   {PROG} lyrics                      find and translate lyrics
@@ -141,13 +142,16 @@ ORGANIZER  (organize_music.py)  — sort songs into Artist/Album/ folders for Je
   {PROG} organize --no-artist-art     don't copy artist photo to folder.jpg
   {PROG} organize --no-clean          don't remove empty source directories
 
-ALL-IN-ONE PIPELINE  (run_all.py)  — tidy, art, artists, lyrics and organize in one go, in the smart order
+ALL-IN-ONE PIPELINE  (run_all.py)  — tidy, tags, duplicates, art, artists, lyrics and organize in one go, in the smart order
   {PROG} all                          tidy junk/duplicate folders (if any), then art, artist pictures and lyrics;
                                      shows the plan and asks once before changing anything
   {PROG} all --yes                    same, without the question (scripts, cron)
+  {PROG} all --everything             every step: also tags, duplicate removal and organizing (= --tags --dedupe --organize)
   {PROG} all --no-layout              skip the folder tidy step
   {PROG} all --organize               also organize songs into Artist/Album/ folders
   {PROG} all --tags                   also fix misidentified tags from filenames
+  {PROG} all --dedupe                 also remove duplicate songs: the best copy stays, the rest go to the Trash
+                                     (lists the copies and asks again, unless you add --yes)
   {PROG} all --dry-run                preview all steps without changing files
   {PROG} all PATH [PATH..]            run pipeline on specific files/folders
 

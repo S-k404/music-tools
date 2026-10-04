@@ -330,6 +330,14 @@ class FixAlbumsTests(unittest.TestCase):
         run.assert_called_once_with("organize", ["--config", "my.toml", "--no-progress", str(inside)])
         self.assertEqual(code, 0)
 
+    def test_the_album_lookup_can_be_switched_off(self):
+        with tempfile.TemporaryDirectory() as d:
+            song = Path(d) / "a.flac"
+            song.write_text("x")
+            with mock.patch("interactive.run_tool", return_value=0) as run, redirect_stdout(io.StringIO()):
+                dupes.fix_albums([song], d, None, False, lookup=False)
+        run.assert_called_once_with("organize", ["--no-auto-album", str(song)])
+
     def test_nothing_runs_when_every_kept_song_is_outside_the_library(self):
         with tempfile.TemporaryDirectory() as d:
             song = Path(d) / "elsewhere" / "b.flac"

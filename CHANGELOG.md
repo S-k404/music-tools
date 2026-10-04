@@ -1,5 +1,18 @@
 # Changelog
 
+## Added: duplicate removal in the all-in-one run, and every step in the menu
+
+- **`mt auto --dedupe`** adds the duplicate-song step: keep the best-quality copy of each song, move the rest to the
+  Trash. It runs after the tags and before art and lyrics, so copies are matched on corrected tags and no art or lyrics
+  are fetched for copies about to go. It lists exactly which copies it would remove and asks again (`--yes` skips that);
+  `--dry-run` previews it. With `--organize` the final organize step files the kept songs, otherwise the duplicate step
+  does it itself (`--no-auto-album` is passed on).
+- **`mt auto --everything`** switches on all the optional steps at once: `--tags --dedupe --organize`. They stay off by
+  default because they rewrite tags, remove files or move them.
+- The menu's **All-in-one run** now has a checkbox for every step, duplicate removal included (off by default, like tags),
+  in pipeline order.
+- `mt dupes --no-auto-album` sorts the kept songs without searching online for the album of loose ones.
+
 ## Added: remove duplicate songs by quality, then fix the kept songs' albums
 
 - **`mt dupes` now says which copy is best.** Every group marks one copy `keep` and the rest `remove`, with each file's

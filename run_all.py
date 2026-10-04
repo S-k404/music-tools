@@ -6,13 +6,18 @@ Run the entire music cleanup pipeline in one go, in the order that makes each st
   1. Tidy folders: delete junk, move .lrc.bak files away, merge duplicate album folders
      (only when the library actually has some; whole library only, so skipped when you name folders)
   2. (Optional) Tags: fix misidentified tags from filenames (--tags)
-  3. Album art: add missing cover art from YouTube
-  4. Artist pictures: download artist photos from Deezer / YouTube
-  5. Lyrics: fetch, romanize, and translate lyrics from lrclib.net
-  6. (Optional) Organize: sort songs into Artist/Album/ folders for Jellyfin (--organize)
+  3. (Optional) Duplicates: keep the best-quality copy of each song, move the others to the Trash (--dedupe);
+     after the tags so copies are matched on corrected tags, before art and lyrics so none are fetched for
+     copies about to go. Without --organize it also files the kept songs under Artist/Album/ itself.
+  4. Album art: add missing cover art from YouTube
+  5. Artist pictures: download artist photos from Deezer / YouTube
+  6. Lyrics: fetch, romanize, and translate lyrics from lrclib.net
+  7. (Optional) Organize: sort songs into Artist/Album/ folders for Jellyfin (--organize)
+  --everything switches on all three optional steps (--tags --dedupe --organize).
 
 Features:
-  - Shows the plan and asks once before changing anything (--yes skips the question).
+  - Shows the plan and asks once before changing anything (--yes skips the question). The duplicate step
+    then shows exactly which copies it would remove and asks again, unless you passed --yes.
   - Hands-free by default (--auto on art tools so it never hangs waiting for user input).
   - Dry run mode (--dry-run) previews all steps without modifying files.
   - Clean Ctrl-C handling stops between steps safely.
@@ -22,6 +27,8 @@ Usage:
   python3 run_all.py                      # tidy + art + artists + lyrics
   python3 run_all.py --organize           # ... + folder organization
   python3 run_all.py --tags --organize    # tags + everything above + organize
+  python3 run_all.py --dedupe             # ... + remove lower-quality duplicate songs (to the Trash)
+  python3 run_all.py --everything         # tags + duplicates + organize on top of the default steps
   python3 run_all.py --dry-run            # preview everything
   python3 run_all.py --yes                # no question asked (for scripts and cron)
   python3 run_all.py "YouTube"            # run on a specific folder
@@ -74,6 +81,9 @@ def main(argv: list = None) -> int:
     parser.add_argument("--no-layout", action="store_true", help="Skip tidying junk and duplicate album folders")
     parser.add_argument("--organize", action="store_true", help="Organize files into Artist/Album folders for Jellyfin")
     parser.add_argument("--tags", action="store_true", help="Rebuild misidentified tags from filenames first")
+    parser.add_argument("--dedupe", action="store_true",
+                        help="Remove duplicate songs: keep the best-quality copy, move the rest to the Trash")
+    parser.add_argument("--everything", action="store_true", help="Switch on every optional step: --tags --dedupe --organize")
     parser.add_argument("--no-art", action="store_true", help="Skip album art")
     parser.add_argument("--no-artists", action="store_true", help="Skip artist pictures")
     parser.add_argument("--no-lyrics", action="store_true", help="Skip lyrics")
@@ -81,6 +91,8 @@ def main(argv: list = None) -> int:
     parser.add_argument("--no-auto-album", action="store_true", help="Do not search online for missing album names")
     parser.add_argument("--config", help="Path to config.toml")
     args = parser.parse_args(argv)
+    if args.everything:
+        args.tags = args.dedupe = args.organize = True
 
     extra_config = ["--config", str(args.config)] if args.config else []
     extra_paths = list(args.paths)
@@ -102,6 +114,19 @@ def main(argv: list = None) -> int:
         tag_args.append("--only-severe")
         tag_args.extend(extra_paths)
         steps.append(("tags", "Fix misidentified tags from filenames", tag_args))
+
+    if args.dedupe:
+        dupe_args = [*extra_config, "--delete"]
+        if not args.dry_run:
+            dupe_args.append("--apply")
+            if args.yes:   # without it the step lists the copies it would remove and asks, as the Trash is the only undo
+                dupe_args.append("--yes")
+        if args.organize:
+            dupe_args.append("--no-fix-albums")   # the organize step at the end files every song, the kept ones too
+        elif args.no_auto_album:
+            dupe_args.append("--no-auto-album")
+        dupe_args.extend(extra_paths)
+        steps.append(("duplicates", "Remove duplicate songs: keep the best copy, the rest go to the Trash", dupe_args))
 
     if not args.no_art:
         art_args = [*extra_config]
