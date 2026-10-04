@@ -102,16 +102,16 @@ class DroppedConnectionTests(unittest.TestCase):
         artists._youtube_entries = entries
         self.addCleanup(setattr, artists, "_youtube_entries", real)
 
-    def test_popular_video_channels_keep_only_videos_about_the_name_and_rank_by_views(self):
+    def test_popular_video_channels_only_keep_channels_named_after_the_artist(self):
         video = lambda cid, ch, views, title: {"ie_key": "Youtube", "channel_id": cid, "channel": ch,
                                                "view_count": views, "title": title}
         chan = lambda cid, ch: {"ie_key": "YoutubeTab", "channel": ch, "channel_url": "https://youtube.com/channel/" + cid,
                                 "channel_follower_count": 7, "thumbnails": [{"url": "https://x/a=s88-c", "width": 88}]}
-        self._stub_youtube([video("A", "Small", 10, "Whoever - song"), video("B", "Big", 900, "WHOEVER live"),
-                            video("B", "Big", 100, "Whoever (cover)"), video("C", "Unrelated", 5000, "Something else"),
-                            video("D", "Whoever Official", 1, "x")],
-                           [chan("A", "Small"), chan("B", "Big"), chan("D", "Whoever Official")])
+        self._stub_youtube([video("A", "Whoever - Topic", 10, "song"), video("B", "Whoever Official", 900, "x"),
+                            video("B", "Whoever Official", 100, "y"),
+                            video("C", "Some Label", 5000, "Whoever - song"), video("D", "Cover Guy", 9, "Whoever cover")],
+                           [chan("A", "Whoever - Topic"), chan("B", "Whoever Official"), chan("C", "Some Label")])
         got = artists.popular_video_channels("whoever")
-        self.assertEqual([c["name"] for c in got], ["Whoever Official", "Big", "Small"])
+        self.assertEqual([c["name"] for c in got], ["Whoever Official", "Whoever"])
         self.assertTrue(got[0]["picture_xl"].startswith("https://x/a=s800-"))
         self.assertEqual(artists.popular_video_channels("   "), [])
