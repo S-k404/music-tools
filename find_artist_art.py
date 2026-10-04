@@ -117,7 +117,6 @@ class Job:
     candidates: list = field(default_factory=list)   # Deezer results to choose from
     status: str = "pending"  # pending | found | ready | unsure | failed | done
     reason: str = ""
-    by_views: bool = False   # the candidates are channels of this name's most-watched videos
 
 
 # ---------------------------------------------------------------- names
@@ -582,10 +581,11 @@ def _search_job(job: Job, opts: dict) -> Job:
     if not job.candidates:
         # last resort: whoever uploaded the most-watched videos for this name
         for query in query_variants(job.name):
-            job.candidates = popular_video_channels(query)[: opts["search_results"]]
-            if job.candidates:
-                job.by_views = True
-                break
+            channels = popular_video_channels(query)
+            if channels:
+                # only channels named after the artist get here, so the most-watched one is taken without asking
+                job.picks, job.status = [make_pick(job.name, channels[0])], "found"
+                return job
     if job.candidates:
         job.status = "unsure"
     elif reason:
@@ -671,8 +671,7 @@ def find_pictures(jobs: list, opts: dict, workers: int, quiet: bool) -> None:
 def review(job: Job) -> None:
     """Ask the user to choose for an artist without an exact match."""
     print(f"\n  {yellow('?')} {bold(job.name)}  {dim('· ' + plural(job.songs, 'song'))}")
-    print(dim("    channels of the most-watched YouTube videos for this name:" if job.by_views
-              else "    no artist on Deezer has exactly that name. Closest:"))
+    print(dim("    no artist on Deezer has exactly that name. Closest:"))
     width = max(text_width(a["name"]) for a in job.candidates)
     for i, a in enumerate(job.candidates, 1):
         print(f'      {cyan(str(i))}  {fit(a["name"], min(width, 32))}  '
