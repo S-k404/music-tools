@@ -237,3 +237,27 @@ class EmbeddedLyricsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReadTagsTests(unittest.TestCase):
+    OPTS = {"only_severe": True}
+
+    def _read(self, tags, name="Artist - Song.flac"):
+        with mock.patch.object(library_stats.mutagen, "File", return_value=object()), \
+             mock.patch.object(library_stats, "get_current_tags", return_value=dict(tags)), \
+             mock.patch.object(library_stats, "process_audio_file", return_value={"lines": []}):
+            return library_stats.read_tags(Path(name), self.OPTS)
+
+    def test_a_song_with_title_and_artist_is_tagged(self):
+        self.assertEqual(self._read({"title": "Song", "artist": "Artist"}), (False, False))
+
+    def test_a_song_without_a_title_or_without_an_artist_counts_as_untagged(self):
+        self.assertEqual(self._read({"title": None, "artist": "Artist"})[1], True)
+        self.assertEqual(self._read({"title": "Song", "artist": ""})[1], True)
+
+    def test_a_clearly_wrong_title_is_a_severe_mismatch(self):
+        self.assertEqual(self._read({"title": "Totally Different Words", "artist": "A"}, "Moonlight Walk.flac"), (True, False))
+
+    def test_a_file_mutagen_cannot_read_is_skipped(self):
+        with mock.patch.object(library_stats.mutagen, "File", return_value=None):
+            self.assertIsNone(library_stats.read_tags(Path("x.flac"), self.OPTS))
