@@ -582,6 +582,14 @@ class FileTests(unittest.TestCase):
                 self.assertEqual((cur["title"], cur["artist"]), ("Title", "Artist"))
                 self.assertEqual(cur["picard_keys"], [])
 
+    def test_set_artist_names_the_artist_a_filename_cannot(self):
+        opts = {**common.DEFAULTS["tags"], "dry_run": False, "only_severe": False, "only_mismatched": False,
+                "set_artist": "Rad Cat"}
+        p = self.make("what u want!.mp3", title="what u want!")
+        self.assertFalse(tags.process_audio_file(p, opts).get("error"))
+        cur = tags.get_current_tags(tags.mutagen.File(str(p)))
+        self.assertEqual((cur["title"], cur["artist"]), ("what u want!", "Rad Cat"))
+
 
 class LyricsFetchTests(unittest.TestCase):
     def setUp(self):

@@ -541,6 +541,9 @@ def _process_audio_file(filepath: Path, opts: Dict[str, Any]) -> Optional[Dict[s
         reset_album=opts["album_mode"],
     )
 
+    if opts.get("set_artist"):
+        proposed["artist"] = opts["set_artist"]
+
     current_title = current["title"] or "<None>"
     proposed_title = proposed["title"] or stem
     title_differs = current_title.strip().lower() != proposed_title.strip().lower()
@@ -674,6 +677,8 @@ Examples:
     parser.add_argument("--album-mode", choices=["folder", "clear", "title", "keep"],
                         help="'folder' (parent folder name), 'clear', 'title' or 'keep'")
     parser.add_argument("--no-artist", action="store_true", help="don't update the Artist tag")
+    parser.add_argument("--set-artist", metavar="NAME",
+                        help="write NAME as the Artist tag (for songs the filename can't name); needs a path or --filter")
     parser.add_argument("--keep-picard-tags", action="store_true", help="don't remove Picard/MusicBrainz/AcoustID tags")
     parser.add_argument("--keep-tracks", action="store_true", help="don't clear track and disc numbers")
     parser.add_argument("--filter", help="only process files whose path contains this text (case-insensitive)")
@@ -694,6 +699,7 @@ Examples:
         "title_mode": args.title_mode or t["title_mode"],
         "album_mode": args.album_mode or t["album_mode"],
         "update_artist": t["update_artist"] and not args.no_artist,
+        "set_artist": (args.set_artist or "").strip(),
         "clear_picard": t["clear_picard"] and not args.keep_picard_tags,
         "clear_tracks": t["clear_tracks"] and not args.keep_tracks,
         "filter": args.filter,
@@ -706,6 +712,10 @@ Examples:
         log(f"Using config {cfg['_path']}")
 
     paths = [Path(p) for p in args.paths] or [Path(cfg["music_dir"])]
+    if args.set_artist is not None and not opts["set_artist"]:
+        sys.exit("--set-artist needs a name.")
+    if opts["set_artist"] and not args.paths and not args.filter:
+        sys.exit("--set-artist would rename the artist on every song: name the file(s) or add --filter TEXT.")
 
     # Safety guard: applying to the whole library without a filter needs confirmation
     whole_library = not args.paths or any(p.resolve() == Path(cfg["music_dir"]).resolve() for p in paths)
