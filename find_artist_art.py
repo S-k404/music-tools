@@ -28,6 +28,7 @@ Usage:
 
 import argparse
 import io
+import html
 import json
 import os
 import queue
@@ -483,15 +484,32 @@ def channel_thumbnails(url: str) -> list:
         raise ValueError("couldn't read that YouTube channel")
 
 
+OG_IMAGE_RE = re.compile(r'<meta\s+property="og:image"\s+content="([^"]+)"', re.IGNORECASE)
+
+
 def channel_avatar(url: str) -> str:
     """The profile picture of the YouTube channel at `url` (not its banner), as a big image URL."""
-    thumbs = channel_thumbnails(url)
+    problem = ""
+    try:
+        thumbs = channel_thumbnails(url)
+    except ValueError as e:
+        thumbs, problem = [], str(e)
     # the avatar is the square one; the banner is a wide strip
     square = [t for t in thumbs if "avatar" in str(t.get("id", "")) or
               (t.get("width") and t.get("width") == t.get("height"))]
     picture = big_avatar(square)
     if not picture:
-        raise ValueError("that YouTube channel has no profile picture I can read")
+        # yt-dlp doesn't always list the avatar: the channel page's own preview image is the same picture
+        try:
+            page = fetch_url(url, headers={"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9"},
+                             timeout=30, max_bytes=2_000_000).decode("utf-8", "replace")
+            m = OG_IMAGE_RE.search(page)
+            if m and "ytimg.com/vi" not in m.group(1):
+                picture = YOUTUBE_AVATAR_SIZE_RE.sub("=s800-", html.unescape(m.group(1)))
+        except Exception:
+            pass
+    if not picture:
+        raise ValueError(problem or "that YouTube channel has no profile picture I can read")
     return picture
 
 
