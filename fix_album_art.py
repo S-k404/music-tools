@@ -404,7 +404,9 @@ def convert_webm(path: Path):
         codec = _probe(path, "stream=codec_name")
         ext = {"opus": ".opus", "vorbis": ".ogg"}.get(codec)
         if not ext:
-            return None, f"audio is {codec or 'unreadable'}, can't convert without re-encoding"
+            if not codec:
+                return None, "file is corrupted or unreadable (invalid container/audio stream)"
+            return None, f"audio is {codec}, can't convert without re-encoding"
         out = path.with_suffix(ext)
         if out.exists():
             return None, f"{out.name} already exists, not overwriting it"
