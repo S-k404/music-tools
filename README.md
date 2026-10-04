@@ -272,6 +272,8 @@ mt artists "/path/to/Some Folder" --ask     # only this folder, pick from the cl
 mt artists --artist "Radiohead" --artist "Fred again.."   # look up specific artists
 mt artists --artist "Some DJ" --image https://example.com/photo.jpg
 mt artists --artist "Some DJ" --image ~/Pictures/dj.png   # or an image file
+mt artists --write-missing todo.txt   # list the artists still without a picture...
+mt artists --from-file todo.txt       # ...then fill in "Artist | link or image file" lines and apply them all at once
 mt set artist_art.output_dir "Artist Art"   # where the pictures go
 ```
 

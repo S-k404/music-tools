@@ -78,7 +78,9 @@ ARTIST PICTURES  (find_artist_art.py)  — saved as <Artist>.jpg in one folder, 
   {PROG} artists --list-missing      list artists without a picture (no downloading)
   {PROG} artists --artist "Name"     look up one artist (repeat --artist for several)
   {PROG} artists --artist "Name" --image LINK_OR_FILE
-                                     use your own picture (Deezer artist link, image link or file)
+                                     use your own picture (Deezer or YouTube channel link, image link or file)
+  {PROG} artists --write-missing FILE   save the artists still without a picture to FILE as "Artist |" lines
+  {PROG} artists --from-file FILE      use the "Artist | link or image file" lines you filled in
   {PROG} artists PATH [PATH..]       read artists from specific files/folders
   {PROG} artists --dry-run           look them up but save nothing
   {PROG} artists --ask               pick from the closest artists when there is no exact name match

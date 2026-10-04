@@ -24,6 +24,8 @@ Usage:
   python3 find_artist_art.py /some/folder --ask    # pick from the closest artists when there's no exact match
   python3 find_artist_art.py --artist "Radiohead" --artist "Fred again.."
   python3 find_artist_art.py --artist "Some DJ" --image https://example.com/photo.jpg
+  python3 find_artist_art.py --write-missing todo.txt   # list the artists still without a picture
+  python3 find_artist_art.py --from-file todo.txt       # use the "Artist | link" lines you filled in
 """
 
 import argparse
@@ -542,6 +544,36 @@ def pick_from_text(name: str, text: str) -> Pick:
     return pick
 
 
+def parse_batch_file(path) -> tuple:
+    """
+    ([(name, source)], [problems]) from a file of "Artist | link or image file" lines.
+    Blank lines and lines starting with # are skipped, and so are lines whose link
+    isn't filled in yet (what --write-missing writes). A name listed twice keeps its last link.
+    """
+    entries, problems = {}, []
+    for n, line in enumerate(Path(path).expanduser().read_text(encoding="utf-8").splitlines(), 1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        name, bar, source = (part.strip().strip("'\"") for part in line.rpartition("|"))
+        if not bar or not name:
+            problems.append(f"line {n}: expected 'Artist | link or image file'")
+        elif source:
+            entries[name] = source
+    return list(entries.items()), problems
+
+
+def apply_manual(jobs: list, manual: dict, workers: int) -> None:
+    """Give each job the picture the user pointed at (manual: name -> link or file). A bad one fails only its own job."""
+    def one(job: Job) -> None:
+        try:
+            job.picks, job.status = [pick_from_text(job.name, manual[job.name])], "ready"
+        except Exception as e:
+            job.status, job.reason = "failed", str(e) or type(e).__name__
+    with ThreadPoolExecutor(max(1, min(workers, 4))) as pool:   # each YouTube link takes a few seconds
+        list(pool.map(one, jobs))
+
+
 # ---------------------------------------------------------------- finding pictures
 
 def search_job(job: Job, opts: dict) -> Job:
@@ -796,6 +828,8 @@ def main():
     ap.add_argument("--config", help="path to a config.toml")
     ap.add_argument("--artist", action="append", metavar="NAME", help="look up this artist instead of scanning songs (repeat for several)")
     ap.add_argument("--image", metavar="LINK_OR_FILE", help="use this Deezer artist link, YouTube channel link, image link or image file for the one --artist (implies --force)")
+    ap.add_argument("--from-file", metavar="FILE", help="a text file of 'Artist | link or image file' lines: use each link as that artist's picture (implies --force)")
+    ap.add_argument("--write-missing", metavar="FILE", help="after the run, write the artists still without a picture to FILE as 'Artist |' lines, ready to fill in for --from-file")
     ap.add_argument("--list-missing", action="store_true", help="only list artists without a picture; no downloading")
     ap.add_argument("--dry-run", action="store_true", help="look artists up but don't save anything")
     ap.add_argument("--force", action="store_true", default=None, help="replace pictures that already exist")
@@ -830,17 +864,33 @@ def main():
 
     if args.image and (not args.artist or len(args.artist) != 1):
         sys.exit("--image needs exactly one --artist NAME.")
-    if args.image:
+    if args.from_file and (args.artist or args.image):
+        sys.exit("--from-file can't be combined with --artist or --image.")
+    if args.image or args.from_file:
         opts["force"] = True
 
     # 1. which artists
-    if args.artist:
+    manual = {}   # artist -> the link or file to use for them, when the user chose
+    if args.from_file:
+        try:
+            entries, problems = parse_batch_file(args.from_file)
+        except (OSError, UnicodeDecodeError) as e:
+            sys.exit(f"Could not read {args.from_file}: {getattr(e, 'strerror', None) or e}")
+        for problem in problems:
+            log(f"  {red('✗')} {args.from_file}: {problem}")
+        if not entries:
+            sys.exit(f"Nothing to do: {args.from_file} has no 'Artist | link or image file' lines filled in.")
+        manual = dict(entries)
+        jobs = [Job(name) for name in manual]
+    elif args.artist:
         names = {}
         for n in (n for a in args.artist for n in split_artists(a)):
             names.setdefault(name_key(n), n)
         jobs = [Job(n) for n in names.values()]
         if not jobs:
             sys.exit("--artist needs a name.")
+        if args.image:
+            manual = {jobs[0].name: args.image}
     else:
         paths = args.paths or [resolve(f, cfg["music_dir"]) for f in opts["folders"]]
         files = list(find_audio(paths, AUDIO_EXTS | UNSUPPORTED_EXTS))
@@ -865,12 +915,10 @@ def main():
         return
 
     # 3. look them up in parallel
-    if args.image:
-        job = todo[0]
-        try:
-            job.picks, job.status = [pick_from_text(job.name, args.image)], "ready"
-        except Exception as e:
-            sys.exit(f"Could not use that image: {e}")
+    if manual:
+        apply_manual(todo, manual, workers)
+        if args.image and todo[0].status == "failed":
+            sys.exit(f"Could not use that image: {todo[0].reason}")
     else:
         find_pictures(todo, opts, workers, quiet)
 
@@ -916,6 +964,16 @@ def main():
 
     # 6. report
     report(todo, have, out_dir, args.dry_run, homes)
+    if args.write_missing:
+        missing = [j.name for j in todo if j.status == "failed"]
+        try:
+            Path(args.write_missing).expanduser().write_text(
+                "# Artist | YouTube channel link, Deezer link, image link or image file\n"
+                + "".join(f"{name} |\n" for name in missing), encoding="utf-8")
+            print(f"  {green('✓')} wrote {plural(len(missing), 'artist')} to {args.write_missing}; fill in the links, then: "
+                  f"mt artists --from-file {shlex.quote(args.write_missing)}\n")
+        except OSError as e:
+            print(red(f"  Could not write {args.write_missing}: {e.strerror or e}"))
 
 
 if __name__ == "__main__":
