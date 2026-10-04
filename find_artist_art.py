@@ -34,6 +34,7 @@ import queue
 import re
 import shlex
 import shutil
+import ssl
 import subprocess
 import sys
 import threading
@@ -67,7 +68,10 @@ MAX_IMAGE_BYTES = 20_000_000
 # Tags that mean "we don't know", not a real artist
 NOT_AN_ARTIST = {"various artists", "various", "va", "unknown", "unknown artist", "artist", "n a", "none"}
 FEAT_RE = re.compile(r"\s*;\s*|\x00|\s+(?:feat\.?|ft\.?|featuring)\s+", re.IGNORECASE)
-COMBO_RE = re.compile(r"\s+(?:&|and|x|\+|vs\.?)\s+|,\s+", re.IGNORECASE)
+# "A & B", "A x B", "A with B", "A as B" (an alias), "A / B", "A、B", "A feat.B", "A vo. B"
+COMBO_RE = re.compile(r"\s+(?:&|and|x|\+|vs\.?|with|as)\s+|\s*[&＆×/、]\s*|,\s+|\s+(?:feat|ft|featuring|vo)\.\s*"
+                      r"|\s+(?:feat|ft|featuring)\s+", re.IGNORECASE)
+TOPIC_RE = re.compile(r"\s+-\s+Topic$", re.IGNORECASE)   # YouTube's auto-generated channel names
 DEEZER_ARTIST_RE = re.compile(r"deezer\.com/(?:[a-z]{2}(?:-[a-z]{2})?/)?artist/(\d+)")
 # Deezer serves an empty-hash URL when an artist has no picture
 NO_PICTURE_MARKERS = ("/artist//", "d41d8cd98f00b204e9800998ecf8427e")
@@ -134,7 +138,7 @@ def name_parts(name: str) -> list:
 
 def query_variants(name: str) -> list:
     """The name as tagged, then without (brackets) that only confuse the search."""
-    bare = re.sub(r"\s*[\(\[].*?[\)\]]", "", name).strip()
+    bare = re.sub(r"\s*[\(\[（].*?[\)\]）]", "", TOPIC_RE.sub("", name)).strip()
     return [name] + ([bare] if bare and bare != name else [])
 
 
@@ -272,7 +276,11 @@ def deezer_get(path: str, **params) -> dict:
         except urllib.error.HTTPError as e:
             raise RuntimeError(f"Deezer answered HTTP {e.code}") from e
         except (urllib.error.URLError, TimeoutError, OSError) as e:
-            raise RuntimeError(f"could not reach Deezer (offline?): {getattr(e, 'reason', e)}") from e
+            reason = getattr(e, "reason", e)
+            if attempt < 3 and isinstance(reason, (ssl.SSLError, ConnectionError, TimeoutError)):
+                time.sleep(1 + attempt)   # a dropped connection, not "offline": ask again on a fresh one
+                continue
+            raise RuntimeError(f"could not reach Deezer (offline?): {reason}") from e
         error = data.get("error") if isinstance(data, dict) else None
         if not error:
             return data
