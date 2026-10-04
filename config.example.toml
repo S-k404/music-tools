@@ -130,3 +130,22 @@ tolerance_seconds = 3.0
 # Top-level folders `mt layout` should leave out (names inside music_dir). It already skips your
 # artist-picture folder (artist_art.output_dir) and lyrics.backup_dir, and anything starting with "." or "$".
 ignore = []
+
+[organize]
+# Folders to organize into Artist/Album/ structures (absolute, or relative to music_dir). "." = the whole music folder.
+folders = ["."]
+
+# Folder name when a song has no artist tag or parseable artist in the filename.
+fallback_artist = "Unknown Artist"
+
+# Folder name when a song has no album tag (e.g. YouTube singles). Set to "" or "none" to place directly under Artist/.
+fallback_album = "Singles"
+
+# Automatically find the real studio album for loose songs before falling back to Singles.
+auto_album = true
+
+# Automatically copy the artist's photo (from Artist Art/) to <Artist>/folder.jpg for Jellyfin and Plex.
+copy_artist_art = true
+
+# Remove empty source directories after all songs inside them have been moved.
+clean_empty_dirs = true

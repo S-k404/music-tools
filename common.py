@@ -89,6 +89,14 @@ DEFAULTS = {
     "layout": {
         "ignore": [],   # top-level folders `mt layout` leaves out (it already skips the artist-picture and lyrics-backup folders)
     },
+    "organize": {
+        "folders": ["."],
+        "fallback_artist": "Unknown Artist",
+        "fallback_album": "Singles",
+        "auto_album": True,
+        "copy_artist_art": True,
+        "clean_empty_dirs": True,
+    },
 }
 
 
@@ -165,6 +173,14 @@ def _validate(cfg: dict, source: str) -> None:
             problems.append("duplicates.tolerance_seconds must be between 0 and 30")
         if not all(isinstance(f, str) for f in cfg["layout"]["ignore"]):
             problems.append("layout.ignore should be a list of folder names")
+        org = cfg.get("organize")
+        if org:
+            if not all(isinstance(f, str) for f in org["folders"]):
+                problems.append("organize.folders should be a list of folder paths")
+            if not isinstance(org["fallback_artist"], str) or not org["fallback_artist"].strip():
+                problems.append("organize.fallback_artist must be a non-empty name")
+            if not isinstance(org["fallback_album"], str):
+                problems.append("organize.fallback_album must be a folder name (or empty)")
         if not 1 <= cfg["workers"] <= 64:
             problems.append("workers must be between 1 and 64")
     if problems:

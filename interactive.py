@@ -17,9 +17,17 @@ try:
     import termios
     import tty
     import select
-    RAW_KEYS = sys.stdin.isatty() and sys.stdout.isatty()
+    _TERMIOS_AVAILABLE = True
 except ImportError:  # Windows: fall back to numbered menus
-    RAW_KEYS = False
+    _TERMIOS_AVAILABLE = False
+
+
+def raw_mode() -> bool:
+    try:
+        return _TERMIOS_AVAILABLE and sys.stdin.isatty() and sys.stdout.isatty() and hasattr(sys.stdin, "fileno")
+    except Exception:
+        return False
+
 
 try:
     import readline
@@ -29,7 +37,8 @@ except ImportError:
 FAILED_LIST = HERE / "failed_album_art.txt"
 SCRIPTS = {"art": "fix_album_art.py", "artists": "find_artist_art.py", "lyrics": "find_lyrics.py",
           "tags": "fix_misidentified_tags.py", "duplicates": "find_duplicates.py", "stats": "library_stats.py",
-          "layout": "library_layout.py"}
+          "layout": "library_layout.py",
+          "organize": "organize_music.py", "all": "run_all.py"}
 
 # ---------------------------------------------------------------- styling
 ANIMATE = not os.environ.get("MUSIC_TOOLS_NO_ANIMATION")
@@ -153,7 +162,7 @@ def _render(title, header, rows, cursor, footer, big=False, tick=None, redraw=Fa
 def menu(title, rows, header=(), start=0, back_label="back", big=False):
     """rows: list of (label, hint). Returns the chosen index, or None to go back."""
     header = list(header)
-    if not RAW_KEYS:
+    if not raw_mode():
         clear()
         print(bold(title))
         for line in header:
@@ -195,7 +204,7 @@ def checklist(title, options, run_label, header=()):
     while True:
         rows = [(f"{green('[x]') if st else dim('[ ]')} {o[0]}", o[2]) for o, st in zip(options, states)]
         rows.append((green(f"▶ {run_label}"), ""))
-        if not RAW_KEYS:
+        if not raw_mode():
             choice = menu(title + " (pick a number to switch it on/off)", rows, header)
             if choice is None:
                 return None
@@ -360,6 +369,8 @@ class App:
                 ("Find lyrics", "translate foreign songs: original + romaji + English"),
                 ("Fix wrong tags", "rebuild tags from filenames"),
                 ("Find duplicate songs", "report only — nothing is ever deleted"),
+                ("Organize library", "sort songs into Artist/Album for Jellyfin"),
+                ("All-in-one run", "art + artist pictures + lyrics in one go"),
                 ("Library stats", "one-screen health check, read-only"),
                 ("Check folder layout", "duplicate folders, junk files — report only"),
                 ("Folders", "change which folders are used"),
@@ -374,7 +385,8 @@ class App:
                 return
             cursor = choice
             [self.find_missing, self.add_art, self.retry, self.artists, self.lyrics, self.fix_tags,
-             self.duplicates, self.stats, self.layout, self.folders, self.settings, self.logs, self.help][choice]()
+             self.duplicates, self.organize, self.run_all, self.stats, self.layout, self.folders, self.settings,
+             self.logs, self.help][choice]()
 
     def failed_count(self):
         try:
@@ -389,7 +401,7 @@ class App:
         folders = cfg[section]["folders"]
         shown = "whole music folder" if folders == ["."] else ", ".join(folders) or "none set"
         label = {"album_art": "Art folders", "artist_art": "Artist folders", "lyrics": "Lyrics folders",
-                 "duplicates": "Duplicate-check folders"}[section]
+                 "duplicates": "Duplicate-check folders", "organize": "Organize folders"}[section]
         rows = [(label, shown), ("A different folder or song…", "just this once")]
         choice = menu(title + " · where?", rows, self.status_lines(cfg))
         if choice is None:
@@ -573,6 +585,61 @@ class App:
         if scope is None:
             return
         run_and_wait("duplicates", scope, self.explicit)
+
+    # ---- organize
+    def organize(self):
+        scope = self.pick_scope("Organize library into Artist/Album folders", "organize")
+        if scope is None:
+            return
+        opts = [
+            ["Auto-detect albums for loose songs", True, "finds official album instead of Singles"],
+            ["Copy artist picture to folder.jpg", True, "for Jellyfin / Plex support"],
+            ["Clean empty folders after moving", True, "removes old empty source folders"],
+            ["Preview only (dry run)", False, "show what would move without moving anything"],
+        ]
+        chosen = checklist("Organize into Artist/Album folders", opts, "Organize songs", self.status_lines(self.cfg))
+        if chosen is None:
+            return
+        auto_album, copy_art, clean, dry_run = chosen
+        args = [*scope]
+        if dry_run:
+            args.append("--dry-run")
+        if not auto_album:
+            args.append("--no-auto-album")
+        if not copy_art:
+            args.append("--no-artist-art")
+        if not clean:
+            args.append("--no-clean")
+        run_and_wait("organize", args, self.explicit)
+
+    # ---- all-in-one run
+    def run_all(self):
+        opts = [
+            ["Add missing cover art", True, "YouTube thumbnails embedded into files"],
+            ["Find artist pictures", True, "downloaded from Deezer & YouTube"],
+            ["Find and translate lyrics", True, "synced/plain lyrics from lrclib.net"],
+            ["Organize into Artist/Album folders", True, "sort songs & sidecars for Jellyfin"],
+            ["Fix misidentified tags from filenames", False, "rebuild tags from Artist - Title"],
+            ["Preview only (dry run)", False, "preview all steps without changing files"],
+        ]
+        chosen = checklist("All-in-one run", opts, "Run all selected", self.status_lines(self.cfg))
+        if chosen is None:
+            return
+        do_art, do_artists, do_lyrics, do_organize, do_tags, dry_run = chosen
+        args = []
+        if dry_run:
+            args.append("--dry-run")
+        if not do_art:
+            args.append("--no-art")
+        if not do_artists:
+            args.append("--no-artists")
+        if not do_lyrics:
+            args.append("--no-lyrics")
+        if do_organize:
+            args.append("--organize")
+        if do_tags:
+            args.append("--tags")
+        run_and_wait("all", args, self.explicit)
 
     # ---- library stats
     def stats(self):

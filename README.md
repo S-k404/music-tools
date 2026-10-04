@@ -15,6 +15,8 @@ reachable from its interactive menu.
 | `find_lyrics.py` | Finds lyrics for every song (from lrclib.net) and saves original + romanization + English next to it |
 | `fix_misidentified_tags.py` | Fixes songs that MusicBrainz Picard tagged as the wrong album track, rebuilding tags from the filename |
 | `find_duplicates.py` | Reports songs that are probably the same recording saved more than once (report only — nothing is deleted) |
+| `organize_music.py` | Organizes songs and companion lyrics/images into `Artist/Album/` folders for Jellyfin / Plex |
+| `run_all.py` | Runs album art, artist pictures, lyrics and organization in one automated pass |
 | `library_stats.py` | A one-screen, read-only health check: cover art, artist pictures, lyrics and tag coverage |
 | `library_layout.py` | Checks the folder layout: duplicate album folders, junk files, odd names. Report only; `--clean` / `--merge-albums` preview fixes and `--apply` does them (with an undo file) |
 
@@ -109,6 +111,9 @@ Everything is also available as direct commands; `mt help` lists them.
 ./music-tools artists                        # find a picture for every artist
 ./music-tools tags --only-severe --apply     # fix wrong tags
 ./music-tools duplicates                     # find likely duplicate songs
+./music-tools organize                       # sort songs into Artist/Album for Jellyfin
+./music-tools all                            # run art + artists + lyrics in one go
+./music-tools all --organize                 # full pass: art + artists + lyrics + organize
 ./music-tools stats                          # one-screen library health check
 ```
 
@@ -383,6 +388,55 @@ python3 find_duplicates.py                  # duplicates.folders from config.tom
 python3 find_duplicates.py "/some/folder"   # just this folder
 python3 find_duplicates.py --tolerance 1.5  # how close two lengths must be (seconds)
 python3 find_duplicates.py --report dupes.txt
+```
+
+## organize_music.py  (`mt organize`)
+
+Organizes flat download folders (like YouTube downloads) into media-server-friendly
+folder hierarchies ideal for **Jellyfin**, **Plex**, or **Navidrome**:
+
+```
+Music/
+├── Artist Name/
+│   ├── Album Name/
+│   │   ├── 01 - Track Title.mp3
+│   │   ├── 01 - Track Title.lrc
+│   │   └── 01 - Track Title.html
+│   └── folder.jpg (copied from Artist Art for Jellyfin / Plex)
+```
+
+- **Smart tag & filename reading**: Uses artist and album tags from the files,
+  falling back to `Artist - Title` in the filename if tags are missing.
+- **Sidecars move together**: Accompanying `.lrc`, `.html`, `.txt`, and sidecar
+  images are kept with the audio file.
+- **Jellyfin artist photos**: If `artist_art.output_dir` contains an image for the
+  artist, it automatically copies it to `<Artist>/folder.jpg`.
+- **Safe**: Resolves file name collisions cleanly, cleans up empty source directories,
+  and offers a `--dry-run` preview.
+
+```bash
+mt organize --dry-run                       # preview what will move without touching disk
+mt organize                                 # organize folders from config.toml
+mt organize "YouTube"                       # organize a specific folder
+mt organize --no-artist-art                 # don't copy artist photo to folder.jpg
+```
+
+## run_all.py  (`mt all`)
+
+Runs your cleanup pipeline sequentially in one automated pass:
+
+1. *(Optional)* **Tags**: Fix misidentified tags from filenames (`--tags`)
+2. **Album art**: Search YouTube and embed missing cover art (`--auto`)
+3. **Artist pictures**: Download artist photos from Deezer / YouTube (`--auto`)
+4. **Lyrics**: Fetch, romanize, and translate lyrics from lrclib.net
+5. *(Optional)* **Organize**: Sort files and companion lyrics into `Artist/Album/` (`--organize`)
+
+```bash
+mt all                                      # art + artist pictures + lyrics
+mt all --organize                           # full pass: art + artists + lyrics + folder organization
+mt all --tags --organize                    # tags + art + artists + lyrics + organize
+mt all --dry-run                            # preview all steps safely
+mt all "YouTube" --organize                 # process and organize a specific folder
 ```
 
 ## library_stats.py  (`mt stats`)

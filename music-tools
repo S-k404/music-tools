@@ -109,6 +109,20 @@ DUPLICATES  (find_duplicates.py)  — report only, nothing is ever deleted or mo
   {PROG} duplicates --tolerance 1.5   how close two lengths (seconds) still count as the same recording
   {PROG} duplicates --report dupes.txt   save the group listing as a text file
 
+ORGANIZER  (organize_music.py)  — sort songs into Artist/Album/ folders for Jellyfin
+  {PROG} organize                     sort songs into Artist/Album/ folders
+  {PROG} organize PATH [PATH..]       organize specific files/folders
+  {PROG} organize --dry-run           preview what would be moved without moving anything
+  {PROG} organize --no-artist-art     don't copy artist photo to folder.jpg
+  {PROG} organize --no-clean          don't remove empty source directories
+
+ALL-IN-ONE PIPELINE  (run_all.py)  — run art, artists, lyrics and organize in one go
+  {PROG} all                          run art, artist pictures, and lyrics in one go
+  {PROG} all --organize               also organize songs into Artist/Album/ folders
+  {PROG} all --tags                   also fix misidentified tags from filenames
+  {PROG} all --dry-run                preview all steps without changing files
+  {PROG} all PATH [PATH..]            run pipeline on specific files/folders
+
 LIBRARY STATS  (library_stats.py)  — one-screen health check, read-only and offline
   {PROG} stats                        cover art, artist pictures, lyrics and tag coverage in one view
 
@@ -131,11 +145,14 @@ BOTH
   {PROG} help tags        full options for the tag tool
   {PROG} help duplicates  full options for the duplicate-finder tool
   {PROG} help layout      full options for the folder layout tool
+  {PROG} help organize    full options for the organizer tool
+  {PROG} help all         full options for the all-in-one runner
 """
 
 SCRIPTS = {"art": "fix_album_art.py", "artists": "find_artist_art.py", "lyrics": "find_lyrics.py",
           "tags": "fix_misidentified_tags.py", "duplicates": "find_duplicates.py", "stats": "library_stats.py",
-          "layout": "library_layout.py"}
+          "layout": "library_layout.py",
+          "organize": "organize_music.py", "all": "run_all.py"}
 
 
 def run_script(name: str, args: list) -> int:
