@@ -2,24 +2,28 @@
 """
 run_all.py
 
-Run the entire music cleanup pipeline in one go:
-  1. (Optional) Tags: fix misidentified tags from filenames (--tags)
-  2. Album art: add missing cover art from YouTube
-  3. Artist pictures: download artist photos from Deezer / YouTube
-  4. Lyrics: fetch, romanize, and translate lyrics from lrclib.net
-  5. (Optional) Organize: sort songs into Artist/Album/ folders for Jellyfin (--organize)
+Run the entire music cleanup pipeline in one go, in the order that makes each step cheaper:
+  1. Tidy folders: delete junk, move .lrc.bak files away, merge duplicate album folders
+     (only when the library actually has some; whole library only, so skipped when you name folders)
+  2. (Optional) Tags: fix misidentified tags from filenames (--tags)
+  3. Album art: add missing cover art from YouTube
+  4. Artist pictures: download artist photos from Deezer / YouTube
+  5. Lyrics: fetch, romanize, and translate lyrics from lrclib.net
+  6. (Optional) Organize: sort songs into Artist/Album/ folders for Jellyfin (--organize)
 
 Features:
+  - Shows the plan and asks once before changing anything (--yes skips the question).
   - Hands-free by default (--auto on art tools so it never hangs waiting for user input).
   - Dry run mode (--dry-run) previews all steps without modifying files.
   - Clean Ctrl-C handling stops between steps safely.
-  - Final summary showing the outcome of each step.
+  - Final summary showing the outcome of each step; the tidy step saves an undo file.
 
 Usage:
-  python3 run_all.py                      # art + artists + lyrics
-  python3 run_all.py --organize           # art + artists + lyrics + folder organization
-  python3 run_all.py --tags --organize    # tags + art + artists + lyrics + organize
+  python3 run_all.py                      # tidy + art + artists + lyrics
+  python3 run_all.py --organize           # ... + folder organization
+  python3 run_all.py --tags --organize    # tags + everything above + organize
   python3 run_all.py --dry-run            # preview everything
+  python3 run_all.py --yes                # no question asked (for scripts and cron)
   python3 run_all.py "YouTube"            # run on a specific folder
 """
 
@@ -30,9 +34,30 @@ import sys
 from pathlib import Path
 from typing import List, Tuple
 
-from common import (HERE, bold, cyan, dim, green, heading, load_config, log,
+from common import (HERE, bold, cyan, dim, folder_problem, green, heading, load_config, log, plural,
                     red, yellow)
 from interactive import run_tool
+
+
+def tidy_work(cfg: dict) -> List[str]:
+    """What the folder-tidy step would do in this library (empty when there is nothing, or it can't be read)."""
+    if folder_problem(cfg["music_dir"]):
+        return []
+    import library_layout   # folder names only: no packages needed
+    try:
+        s = library_layout.scan(cfg["music_dir"], library_layout.skip_folders(cfg))
+    except OSError:
+        return []
+    moves_backups = bool(cfg["lyrics"]["backup_dir"])
+    found = [(len(s.albums), "duplicate album folder"), (len(s.junk), "junk file"),
+             (len(s.backups) if moves_backups else 0, ".lrc.bak file"), (len(s.empty), "empty folder")]
+    return [plural(n, w) for n, w in found if n]
+
+
+def confirm(question: str) -> bool:
+    if not sys.stdin.isatty():
+        return False
+    return input(f"  {question} [y/N] ").strip().lower() in ("y", "yes")
 
 
 def main(argv: list = None) -> int:
@@ -45,6 +70,8 @@ def main(argv: list = None) -> int:
     )
     parser.add_argument("paths", nargs="*", help="Folders or files to process (default: configured folders)")
     parser.add_argument("--dry-run", action="store_true", help="Preview all steps without writing anything")
+    parser.add_argument("--yes", action="store_true", help="Don't ask before changing files")
+    parser.add_argument("--no-layout", action="store_true", help="Skip tidying junk and duplicate album folders")
     parser.add_argument("--organize", action="store_true", help="Organize files into Artist/Album folders for Jellyfin")
     parser.add_argument("--tags", action="store_true", help="Rebuild misidentified tags from filenames first")
     parser.add_argument("--no-art", action="store_true", help="Skip album art")
@@ -59,6 +86,14 @@ def main(argv: list = None) -> int:
     extra_paths = list(args.paths)
 
     steps: List[Tuple[str, str, List[str]]] = []
+
+    if not (args.no_layout or extra_paths):   # tidying looks at the whole library, so naming folders skips it
+        work = tidy_work(load_config(args.config))
+        if work:
+            tidy_args = [*extra_config, "--clean", "--merge-albums"]
+            if not args.dry_run:
+                tidy_args += ["--apply", "--yes"]   # the one question below covers it
+            steps.append(("layout", "Tidy folders: " + ", ".join(work), tidy_args))
 
     if args.tags:
         tag_args = [*extra_config]
@@ -114,6 +149,10 @@ def main(argv: list = None) -> int:
     for i, (tool_id, title, _) in enumerate(steps, 1):
         log(f"  {bold(str(i))}. {cyan(title)}")
     log("")
+
+    if not (args.dry_run or args.yes) and not confirm("Run these steps and change your files?"):
+        log(yellow("\n  Nothing was changed. Add --yes to run without asking, or --dry-run to preview.\n"))
+        return 1
 
     results = []
     for i, (tool_id, title, tool_args) in enumerate(steps, 1):

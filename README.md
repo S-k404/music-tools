@@ -16,7 +16,7 @@ reachable from its interactive menu.
 | `fix_misidentified_tags.py` | Fixes songs that MusicBrainz Picard tagged as the wrong album track, rebuilding tags from the filename |
 | `find_duplicates.py` | Reports songs that are probably the same recording saved more than once (report only — nothing is deleted) |
 | `organize_music.py` | Organizes songs and companion lyrics/images into `Artist/Album/` folders for Jellyfin / Plex |
-| `run_all.py` | Runs album art, artist pictures, lyrics and organization in one automated pass |
+| `run_all.py` | Auto mode: tidies junk and duplicate folders, then art, artist pictures, lyrics and (optionally) organization, in the smart order, asking once |
 | `library_stats.py` | A one-screen, read-only health check: cover art, artist pictures, lyrics and tag coverage |
 | `library_layout.py` | Checks the folder layout: duplicate album folders, junk files, odd names. Report only; `--clean` / `--merge-albums` preview fixes and `--apply` does them (with an undo file) |
 
@@ -425,6 +425,7 @@ mt organize --no-artist-art                 # don't copy artist photo to folder.
 
 Runs your cleanup pipeline sequentially in one automated pass:
 
+0. **Tidy folders**: delete junk, move `.lrc.bak` files, merge duplicate albums, only if the library has some (skipped when you name folders or pass `--no-layout`)
 1. *(Optional)* **Tags**: Fix misidentified tags from filenames (`--tags`)
 2. **Album art**: Search YouTube and embed missing cover art (`--auto`)
 3. **Artist pictures**: Download artist photos from Deezer / YouTube (`--auto`)
@@ -432,7 +433,9 @@ Runs your cleanup pipeline sequentially in one automated pass:
 5. *(Optional)* **Organize**: Sort files and companion lyrics into `Artist/Album/` (`--organize`)
 
 ```bash
-mt all                                      # art + artist pictures + lyrics
+mt all                                      # tidy folders (if needed) + art + artist pictures + lyrics; asks once
+mt all --yes                                # same, no question asked
+mt all --no-layout                          # skip the folder tidy step
 mt all --organize                           # full pass: art + artists + lyrics + folder organization
 mt all --tags --organize                    # tags + art + artists + lyrics + organize
 mt all --dry-run                            # preview all steps safely
