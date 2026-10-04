@@ -270,7 +270,7 @@ class SidecarAndPlanTests(unittest.TestCase):
 
 class RunAllTests(unittest.TestCase):
     def test_run_all_main_no_steps_when_all_disabled(self):
-        code = run_all.main(["--no-art", "--no-artists", "--no-lyrics"])
+        code = run_all.main(["--no-layout", "--no-art", "--no-artists", "--no-lyrics"])
         self.assertEqual(code, 0)
 
 

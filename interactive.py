@@ -615,6 +615,7 @@ class App:
     # ---- all-in-one run
     def run_all(self):
         opts = [
+            ["Tidy folders first", True, "delete junk, merge duplicate albums (only if there are some)"],
             ["Add missing cover art", True, "YouTube thumbnails embedded into files"],
             ["Find artist pictures", True, "downloaded from Deezer & YouTube"],
             ["Find and translate lyrics", True, "synced/plain lyrics from lrclib.net"],
@@ -625,8 +626,10 @@ class App:
         chosen = checklist("All-in-one run", opts, "Run all selected", self.status_lines(self.cfg))
         if chosen is None:
             return
-        do_art, do_artists, do_lyrics, do_organize, do_tags, dry_run = chosen
+        do_tidy, do_art, do_artists, do_lyrics, do_organize, do_tags, dry_run = chosen
         args = []
+        if not do_tidy:
+            args.append("--no-layout")
         if dry_run:
             args.append("--dry-run")
         if not do_art:

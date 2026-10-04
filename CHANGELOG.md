@@ -1,5 +1,13 @@
 # Changelog
 
+## Changed: `mt all` is now a smart auto mode
+
+- Runs in the cheapest order: tidy folders (junk, `.lrc.bak`, duplicate albums) when the library has some, then tags
+  (`--tags`), album art, artist pictures, lyrics, and organize (`--organize`) last. The tidy step is skipped when
+  there's nothing to do or when you name folders.
+- Shows the plan and asks once before changing anything; `--yes` skips the question, `--dry-run` previews. `--no-layout`
+  skips the tidy step. The tidy step saves an undo file (`mt layout --undo --apply`).
+
 ## Added: `mt layout` (folder layout check and tidy) and artist pictures in each artist's folder
 
 - **`library_layout.py` (`mt layout`)** checks the `Artist/Album/Track` layout from folder names alone and, by
