@@ -81,7 +81,7 @@ ARTIST PICTURES  (find_artist_art.py)  — saved as <Artist>.jpg in one folder, 
                                      use your own picture (Deezer artist link, image link or file)
   {PROG} artists PATH [PATH..]       read artists from specific files/folders
   {PROG} artists --dry-run           look them up but save nothing
-  {PROG} artists --auto              never ask; skip artists without an exact name match
+  {PROG} artists --ask               pick from the closest artists when there is no exact name match
   {PROG} artists --force             replace pictures that already exist
   {PROG} set artist_art.output_dir "Artist Art"   where the pictures go (relative to the music folder)
 

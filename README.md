@@ -268,7 +268,7 @@ picture are skipped, so a second run only retries the ones that failed.
 mt artists                                  # artist folders from the config
 mt artists --list-missing                   # list artists without a picture (no downloading)
 mt artists --dry-run                        # look them up, save nothing
-mt artists "/path/to/Some Folder" --auto    # only this folder, never ask
+mt artists "/path/to/Some Folder" --ask     # only this folder, pick from the closest artists when no exact match
 mt artists --artist "Radiohead" --artist "Fred again.."   # look up specific artists
 mt artists --artist "Some DJ" --image https://example.com/photo.jpg
 mt artists --artist "Some DJ" --image ~/Pictures/dj.png   # or an image file
