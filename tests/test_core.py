@@ -10,6 +10,7 @@ import types
 import unittest
 import unicodedata
 from pathlib import Path
+from unittest import mock
 
 if importlib.util.find_spec("mutagen") is None or importlib.util.find_spec("PIL") is None:
     raise unittest.SkipTest("mutagen and Pillow are needed to run these tests (./setup.sh)")
@@ -393,6 +394,32 @@ class FolderMenuTests(unittest.TestCase):
     def test_album_art_folders_are_unaffected_by_editing_other_sections(self):
         cfg = self.run_menu("folders", "4", "1", "Mixes", "4", "6")
         self.assertEqual(cfg["album_art"]["folders"], ["."])
+
+    def run_duplicates_menu(self, *inputs):
+        """What `mt duplicates ...` the Duplicates screen would run for these keystrokes."""
+        import interactive
+        old_stdin, old_stdout = sys.stdin, sys.stdout
+        sys.stdin = io.StringIO("\n".join(inputs) + "\n")
+        sys.stdout = io.StringIO()
+        try:
+            with mock.patch.object(interactive, "run_and_wait") as run:
+                interactive.App(str(self.config)).duplicates()
+        finally:
+            sys.stdin, sys.stdout = old_stdin, old_stdout
+        return [c.args[:2] for c in run.call_args_list]
+
+    def test_duplicates_screen_offers_the_report_a_preview_and_the_removal(self):
+        # 1 = the configured folders, then 1 = report, 2 = preview, 3 = remove
+        self.assertEqual(self.run_duplicates_menu("1", "1"), [("duplicates", [])])
+        self.assertEqual(self.run_duplicates_menu("1", "2"), [("duplicates", ["--delete"])])
+        self.assertEqual(self.run_duplicates_menu("1", "3"), [("duplicates", ["--delete", "--apply"])])
+
+    def test_duplicates_screen_passes_a_chosen_folder_along(self):
+        self.assertEqual(self.run_duplicates_menu("2", str(self.lib / "Mixes"), "3"),
+                         [("duplicates", ["--delete", "--apply", str(self.lib / "Mixes")])])
+
+    def test_backing_out_of_the_duplicates_screen_runs_nothing(self):
+        self.assertEqual(self.run_duplicates_menu("1", ""), [])
 
     def test_duplicates_folders_can_be_added_via_the_menu(self):
         # 5 = Duplicate-check folders, 1 = Add a folder, then the path, 4 = back, 6 = back

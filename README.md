@@ -37,7 +37,7 @@ The older names (`all`, `art`, `layout`, `stats`, ...) still work, and small sli
 | `find_artist_art.py` | `mt artists` | Finds a picture for every artist (Deezer, with a YouTube fallback) and saves it as `<Artist>.jpg`, or `Artist/artist.jpg` |
 | `find_lyrics.py` | `mt lyrics` | Finds lyrics (lrclib.net) and saves original + romanization + English next to each song |
 | `fix_misidentified_tags.py` | `mt fix` | Fixes songs that MusicBrainz Picard tagged as the wrong album track, rebuilding tags from the filename |
-| `find_duplicates.py` | `mt dupes` | Reports songs that are probably the same recording saved twice (report only; nothing is deleted) |
+| `find_duplicates.py` | `mt dupes` | Finds songs that are probably the same recording saved twice; on request moves the lower-quality copies to the Trash and fixes the kept songs' albums |
 | `library_layout.py` | `mt tidy` | Finds duplicate album folders, junk and odd names; merges and cleans them with an undo file |
 | `organize_music.py` | `mt organize` | Sorts songs and companion lyrics/images into `Artist/Album/` folders for Jellyfin / Plex |
 | `run_all.py` | `mt auto` | Runs the tools above in the smart order, asking once |
@@ -87,7 +87,7 @@ completion or drag a folder in from Finder), change every setting, and read the 
     4 Find artist pictures      a photo for every artist, from Deezer
     5 Find lyrics               translate foreign songs: original + romaji + English
     6 Fix wrong tags            rebuild tags from filenames
-    7 Find duplicate songs      report only; nothing is ever deleted
+    7 Find duplicate songs      keep the best copy of each, remove the rest to the Trash
     8 Organize library          sort songs into Artist/Album for Jellyfin
     9 All-in-one run            art + artist pictures + lyrics in one go
    10 Library stats             one-screen health check, read-only
@@ -118,7 +118,8 @@ mt artists                        # find a picture for every artist
 mt lyrics                         # find and translate lyrics
 mt fix --only-severe --apply      # fix wrong tags
 mt fix FILE --set-artist NAME     # set the Artist tag by hand (then `mt organize` files it under that artist)
-mt dupes                          # find likely duplicate songs
+mt dupes                          # find likely duplicate songs (which copy is best, which would go)
+mt dupes --delete --apply         # move the lower-quality copies to the Trash, then fix the kept songs' albums
 mt tidy                           # merge duplicate folders, delete junk (asks first)
 mt undo                           # reverse the last tidy
 mt organize                       # sort songs into Artist/Album for Jellyfin
@@ -383,9 +384,9 @@ filter asks for confirmation.
 ## find_duplicates.py  (`mt dupes`)
 
 Finds songs that are probably the same recording saved more than once —
-downloaded twice into different folders, or in different formats/bitrates.
-Report only: nothing is ever deleted, moved or changed. You decide what (if
-anything) to remove yourself.
+downloaded twice into different folders, or in different formats/bitrates —
+and, when you ask, removes the lower-quality copies and fixes the albums of the
+songs it kept.
 
 Songs are grouped by artist and a cleaned-up title (YouTube upload noise and
 deliberate variant words like "sped up"/"slowed"/"nightcore" stripped, so two
@@ -394,11 +395,42 @@ differently), and only flagged when their lengths are also close — a song and
 its own sped-up or slowed edit share a title but have a different length, so
 they're correctly never flagged together.
 
+**Which copy is kept.** Every group shows `keep` next to the best copy and
+`remove` next to the rest, with each file's format and bitrate. The best copy is
+the one with the highest quality: lossless (FLAC, ALAC, WAV) beats any lossy
+file, higher resolution (24-bit/96 kHz over 16-bit/44.1 kHz) beats lower, and among
+lossy files the higher bitrate wins, counting AAC, Vorbis and Opus for a little
+more than MP3 at the same bitrate. Files within about 8% of each other count as
+the same quality; a tie goes to the copy that already has a real album tag, then
+the bigger file, then the first path alphabetically. Quality is judged from the
+format and bitrate each file states, so it can't tell a "lossless" file that was
+made from an MP3.
+
+**Removing.** Without options nothing is ever changed. `--delete` previews, `--apply`
+does it (it asks first; `--yes` skips the question):
+
+- the copies marked `remove` go to the **Trash** (macOS), never straight to deletion, so
+  *Put Back* restores one. Without a Trash (other systems) it removes nothing;
+- lyrics and covers that belong only to a removed copy go with it, except lyrics
+  the kept copy doesn't have yet, which move over to it. Files shared by two copies
+  of the same name in one folder (`Song.mp3` and `Song.flac` sharing `Song.lrc`) are
+  left alone;
+- a group whose copies are tagged as different versions (one a remix, live take,
+  instrumental or sped-up edit) is listed but **never removed**, even when the lengths
+  match; so are two names for the same file;
+- afterwards the kept songs are handed to `mt organize`, which files each under
+  `Artist/Album/`, looking up the album of loose songs online (`organize.auto_album`),
+  and empty folders left behind are removed. Kept songs outside your music folder stay
+  put. `--no-fix-albums` skips this step.
+
 ```bash
-python3 find_duplicates.py                  # duplicates.folders from config.toml
+python3 find_duplicates.py                  # duplicates.folders from config.toml; keep/remove marks, changes nothing
 python3 find_duplicates.py "/some/folder"   # just this folder
 python3 find_duplicates.py --tolerance 1.5  # how close two lengths must be (seconds)
 python3 find_duplicates.py --report dupes.txt
+python3 find_duplicates.py --delete         # preview moving the lower-quality copies to the Trash
+python3 find_duplicates.py --delete --apply # do it (asks first), then fix the albums of the kept songs
+python3 find_duplicates.py --delete --apply --yes --no-fix-albums
 ```
 
 ## organize_music.py  (`mt organize`)

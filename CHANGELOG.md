@@ -1,5 +1,26 @@
 # Changelog
 
+## Added: remove duplicate songs by quality, then fix the kept songs' albums
+
+- **`mt dupes` now says which copy is best.** Every group marks one copy `keep` and the rest `remove`, with each file's
+  format and bitrate (`FLAC 16-bit/44.1 kHz`, `MP3 320 kbps`). Lossless beats lossy, higher resolution beats lower,
+  and among lossy files the higher bitrate wins (AAC, Vorbis and Opus count for a little more than MP3 at the same
+  bitrate; files within about 8% are a tie). A tie goes to the copy with a real album tag, then the bigger file, then
+  the first path. A plain run still changes nothing.
+- **`mt dupes --delete`** previews removing the lower-quality copies; **`--apply`** does it (asks first, `--yes` skips
+  the question). They go to the Trash, not straight to deletion, and a removed copy's lyrics and covers go with it, except
+  lyrics the kept copy lacks, which move over to it. Where there is no Trash (not macOS) nothing is removed.
+- **Safeguards.** A group whose copies are tagged as different versions (remix, live, acoustic, instrumental, sped up,
+  slowed...) is listed but never removed, even when the lengths match; two names for one file are never removed; files
+  two copies of one name share (`Song.mp3` + `Song.flac` + `Song.lrc`) are left alone; the copy to keep is checked again
+  just before each removal; it stops after three failures in a row.
+- **Albums fixed afterwards.** The songs kept are handed to `mt organize`, which files each under `Artist/Album/`
+  (looking up the album of loose songs when `organize.auto_album` is on); folders the removal emptied are cleaned up.
+  Songs outside the music folder stay where they are. `--no-fix-albums` skips the step.
+- The menu's "Find duplicate songs" now offers the report, a preview and the removal. `--report` files gain the format
+  and keep/remove columns.
+- Fixed: `mt organize` refused a single song as its path (`mt organize "Song.mp3"`) although the README says it takes files.
+
 ## Fixed: `mt organize` and placeholder tags
 
 - Tags that literally say `null`, `none`, `n/a`, `Unknown`, `Unknown Artist` or `Unknown Album` are now treated as missing, so

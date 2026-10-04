@@ -368,7 +368,7 @@ class App:
                 ("Find artist pictures", "a photo for every artist, from Deezer"),
                 ("Find lyrics", "translate foreign songs: original + romaji + English"),
                 ("Fix wrong tags", "rebuild tags from filenames"),
-                ("Find duplicate songs", "report only — nothing is ever deleted"),
+                ("Find duplicate songs", "keep the best copy of each, remove the rest to the Trash"),
                 ("Organize library", "sort songs into Artist/Album for Jellyfin"),
                 ("All-in-one run", "art + artist pictures + lyrics in one go"),
                 ("Library stats", "one-screen health check, read-only"),
@@ -580,11 +580,22 @@ class App:
         run_and_wait("tags", args, self.explicit)
 
     # ---- duplicates
+    DUPLICATE_ACTIONS = (
+        ("Show the report", "which copy of each song would be kept — changes nothing", []),
+        ("Preview removing the lower-quality copies", "the same list; nothing is changed", ["--delete"]),
+        ("Remove the lower-quality copies", "to the Trash, keeping the best of each; shows the list, asks, then fixes the kept songs' albums",
+         ["--delete", "--apply"]),
+    )
+
     def duplicates(self):
         scope = self.pick_scope("Find duplicate songs", "duplicates")
         if scope is None:
             return
-        run_and_wait("duplicates", scope, self.explicit)
+        choice = menu("Duplicate songs", [(label, hint) for label, hint, _ in self.DUPLICATE_ACTIONS],
+                      self.status_lines(self.cfg))
+        if choice is None:
+            return
+        run_and_wait("duplicates", [*self.DUPLICATE_ACTIONS[choice][2], *scope], self.explicit)
 
     # ---- organize
     def organize(self):

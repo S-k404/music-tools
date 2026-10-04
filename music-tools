@@ -124,11 +124,15 @@ TAGS  (fix_misidentified_tags.py)  — preview only unless you add --apply
   {PROG} tags --no-artist | --keep-picard-tags | --keep-tracks
   {PROG} tags PATH --set-artist NAME set the Artist tag by hand (then `{PROG} organize` moves the file)
 
-DUPLICATES  (find_duplicates.py)  — report only, nothing is ever deleted or moved
-  {PROG} duplicates                   find likely duplicate songs in duplicates.folders
+DUPLICATES  (find_duplicates.py)  — changes nothing unless you add --delete --apply
+  {PROG} duplicates                   find likely duplicate songs in duplicates.folders; marks the best copy
+                                     of each (lossless, then bitrate) "keep" and the rest "remove"
   {PROG} duplicates PATH [PATH..]     check specific files/folders
   {PROG} duplicates --tolerance 1.5   how close two lengths (seconds) still count as the same recording
   {PROG} duplicates --report dupes.txt   save the group listing as a text file
+  {PROG} duplicates --delete          preview moving the lower-quality copies to the Trash
+  {PROG} duplicates --delete --apply  do it (asks first; --yes skips the question), then sort the songs kept
+                                     into Artist/Album/ folders, looking up albums (--no-fix-albums skips that)
 
 ORGANIZER  (organize_music.py)  — sort songs into Artist/Album/ folders for Jellyfin
   {PROG} organize                     sort songs into Artist/Album/ folders
