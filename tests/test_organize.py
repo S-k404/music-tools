@@ -80,6 +80,19 @@ class SidecarAndPlanTests(unittest.TestCase):
             self.assertEqual((meta["artist"], meta["album"]), ("Real Artist", ""), album)
             self.assertEqual((plan.artist, plan.album), ("Real Artist", "Singles"), album)
 
+    def test_a_placeholder_album_from_the_lookup_cache_is_not_used(self):
+        import json
+        import unittest.mock as mock
+        song = self.source_dir / "Artist - Title.mp3"
+        song.write_bytes(b"")
+        meta = {"artist": "Artist", "album": "Title", "title": "Title", "track": None}
+        plan = org.plan_move(song, self.music_dir, fallback_album="Singles", resolved_album="Unknown", track_meta=meta)
+        self.assertEqual(plan.album, "Singles")
+        cache = Path(self.temp_dir) / "cache.json"
+        cache.write_text(json.dumps({"a // one": "Unknown", "a // two": "null", "a // three": "Real Album", "a // four": ""}))
+        with mock.patch.object(org, "ALBUM_CACHE_FILE", cache):
+            self.assertEqual(org.load_album_cache(), {"a // three": "Real Album", "a // four": ""})
+
     def test_plan_move_flat_when_fallback_album_empty(self):
         song = self.source_dir / "Artist - Title.mp3"
         song.write_bytes(b"")

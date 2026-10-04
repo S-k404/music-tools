@@ -79,7 +79,9 @@ def load_album_cache() -> dict:
     if ALBUM_CACHE_FILE.is_file():
         try:
             with open(ALBUM_CACHE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                cache = json.load(f)
+            # an answer like "Unknown" or "null" from an older run is not an album: look those songs up again
+            return {k: v for k, v in cache.items() if not (isinstance(v, str) and is_placeholder(v))}
         except Exception:
             return {}
     return {}
@@ -395,7 +397,7 @@ def plan_move(
 
     # Filter out single-track placeholder album names
     if not raw_album or raw_album.lower() in ("youtube", raw_artist.lower(), meta["title"].lower()) or is_placeholder(raw_album):
-        if resolved_album:
+        if resolved_album and not is_placeholder(resolved_album):
             raw_album = resolved_album
             was_auto_album = True
         else:
