@@ -148,6 +148,7 @@ ALL-IN-ONE PIPELINE  (run_all.py)  — tidy, art, artists, lyrics and organize i
 
 LIBRARY STATS  (library_stats.py)  — one-screen health check, read-only and offline
   {PROG} stats                        cover art, artist pictures, lyrics and tag coverage in one view
+  {PROG} stats --list-untagged        also list the songs that have no title or no artist tag
 
 FOLDER LAYOUT  (library_layout.py)  — report only unless you add --apply
   {PROG} layout                       duplicate album folders, junk files, odd folder names, empty folders

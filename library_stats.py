@@ -13,6 +13,7 @@ own, so it always covers the whole library, and says so.
 Usage:
   python3 library_stats.py              # one report, using each tool's own configured folders
   python3 library_stats.py --no-progress
+  python3 library_stats.py --list-untagged   # also list songs with no title or artist tag
 """
 
 import argparse
@@ -50,6 +51,7 @@ class Library:
     def __init__(self, music_dir):
         self.root = Path(music_dir).expanduser()
         self._files = None
+        self.untagged = []   # (song, missing field names), filled in by the tag check
 
     def _all(self) -> list:
         if self._files is None:
@@ -132,7 +134,7 @@ def lyrics_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None
 
 def read_tags(path: Path, opts: dict):
     """
-    (severe mismatch?, missing a title or artist?) for one song, opening the file once.
+    (severe mismatch?, names of the missing fields: title and/or artist) for one song, opening the file once.
     None when it isn't a readable audio file. The full tag check only runs on the rare
     severe candidates, same as `mt fix --only-severe`.
     """
@@ -147,7 +149,7 @@ def read_tags(path: Path, opts: dict):
     tags = get_current_tags(audio)
     severe = (is_severe_mismatch(unicodedata.normalize("NFC", path.stem), tags["title"])
               and process_audio_file(path, opts) is not None)
-    return severe, not (tags["title"] and tags["artist"])
+    return severe, [field for field in ("title", "artist") if not tags[field]]
 
 
 def tag_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None:
@@ -158,10 +160,10 @@ def tag_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None:
     opts = {**cfg["tags"], "dry_run": True, "only_severe": True, "only_mismatched": False, "filter": None}
     files = library.files([library.root], SUPPORTED_EXTENSIONS)
     with ThreadPoolExecutor(workers) as pool:
-        results = [r for r in progress(pool.map(lambda p: read_tags(p, opts), files), len(files), "Checking tags", quiet)
-                   if r is not None]
-    severe = sum(r[0] for r in results)
-    untagged = sum(r[1] for r in results)
+        results = list(progress(pool.map(lambda p: read_tags(p, opts), files), len(files), "Checking tags", quiet))
+    severe = sum(r[0] for r in results if r)
+    library.untagged = sorted((p, r[1]) for p, r in zip(files, results) if r and r[1])
+    untagged = len(library.untagged)
     fact("Tag check", f"{severe} severe mismatch(es)  ·  {untagged} missing a title or artist  ·  out of {len(files)} files  "
                       + dim("(whole library — fix_misidentified_tags has no folders setting)"))
 
@@ -179,6 +181,20 @@ def layout_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None
     fact("Layout", text + "  " + dim("(mt layout has the details)") if text else "no duplicate folders or junk")
 
 
+def list_untagged(library: Library) -> None:
+    if not library.untagged:
+        log(f"\n  {dim('Every song has a title and an artist.')}")
+        return
+    log(f"\n  Songs missing tags ({len(library.untagged)}):")
+    for path, missing in library.untagged:
+        try:
+            shown = path.relative_to(library.root)
+        except ValueError:
+            shown = path
+        log(f"    {shown}  {dim('(no ' + ' or '.join(missing) + ')')}")
+    log(dim("  Fix them with `mt fix` (rebuilds tags from the filename) or a tag editor."))
+
+
 SECTIONS = (art_stats, artist_stats, lyrics_stats, tag_stats, layout_stats)
 
 
@@ -186,6 +202,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", help="path to a config.toml")
     ap.add_argument("--workers", type=int, choices=range(1, 65), metavar="1-64", help="parallel file reads")
+    ap.add_argument("--list-untagged", action="store_true", help="also list the songs that have no title or no artist tag")
     ap.add_argument("--no-progress", action="store_true", help="hide progress bars")
     args = ap.parse_args()
 
@@ -203,6 +220,8 @@ def main():
         if STOP.is_set():
             break
         section_fn(cfg, workers, quiet, library)
+    if args.list_untagged:
+        list_untagged(library)
     print()
 
 
