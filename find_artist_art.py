@@ -552,7 +552,7 @@ def _search_job(job: Job, opts: dict) -> Job:
         close = sorted((a for a in found if match_score(job.name, a.get("name", "")) >= 0.5),
                        key=lambda a: (-match_score(job.name, a["name"]), -(a.get("nb_fan") or 0)))
         job.candidates = [a for a in close if picture_of(a)][: opts["search_results"]]
-    if not job.candidates and not reason:
+    if not job.candidates:
         # last resort: whoever uploaded the most-watched videos for this name
         for query in query_variants(job.name):
             job.candidates = popular_video_channels(query)[: opts["search_results"]]
