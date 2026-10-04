@@ -444,6 +444,16 @@ def do_merge(s: Scan, groups: list, apply: bool, rec: Recorder = None, what: str
     return rec
 
 
+def _remove_empty_parents(folder: Path, root: Path) -> None:
+    """After a file is moved back, drop the folders the merge had created for it (stops at the first one in use)."""
+    while folder != root and root in folder.parents:
+        try:
+            folder.rmdir()
+        except OSError:
+            return
+        folder = folder.parent
+
+
 def do_undo(manifest: Path, apply: bool) -> None:
     data = json.loads(manifest.read_text(encoding="utf-8"))
     ops = data.get("ops", [])
@@ -458,6 +468,7 @@ def do_undo(manifest: Path, apply: bool) -> None:
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(src), str(dest))
                     mapping[str(src)] = str(dest)
+                    _remove_empty_parents(src.parent, Path(data.get("root", "")))
                 done += 1
             else:
                 skipped += 1
