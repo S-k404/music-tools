@@ -57,6 +57,22 @@ all (a small built-in table).
 
 ## The `music-tools` command (`mt`)
 
+### Quick commands
+
+| Type this | It does |
+|---|---|
+| `mt` | opens the menu |
+| `mt auto` | everything: tidy folders, then art, artist pictures and lyrics (asks once; `--dry-run` previews) |
+| `mt tidy` | merges duplicate folders and deletes junk (shows the list, asks first; `--dry-run` previews) |
+| `mt undo` | puts back what the last tidy moved |
+| `mt lyrics` / `mt covers` / `mt artists` | find lyrics / add album art / find artist pictures |
+| `mt check` | one-screen health check |
+| `mt help COMMAND` | every option of one command |
+
+The older names (`all`, `art`, `layout`, `stats`, ...) still work, and small slips in flags are forgiven
+(`--dryrun`, `--dry_run` and `-n` all mean `--dry-run`; `-y` means `--yes`). A mistyped command gets a "Did you mean ...?".
+
+
 Set up the `mt` alias once (see the end of this section), then just type `mt`
 from anywhere. `mt` on its own opens an interactive menu: arrow keys to move,
 Enter to choose, Space to switch options on/off, `q` to go back. From there you
