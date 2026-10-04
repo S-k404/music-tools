@@ -117,6 +117,7 @@ mt covers                         # add missing art
 mt artists                        # find a picture for every artist
 mt lyrics                         # find and translate lyrics
 mt fix --only-severe --apply      # fix wrong tags
+mt fix FILE --set-artist NAME     # set the Artist tag by hand (then `mt organize` files it under that artist)
 mt dupes                          # find likely duplicate songs
 mt tidy                           # merge duplicate folders, delete junk (asks first)
 mt undo                           # reverse the last tidy

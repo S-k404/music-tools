@@ -122,6 +122,7 @@ TAGS  (fix_misidentified_tags.py)  — preview only unless you add --apply
   {PROG} tags --title-mode auto|stem|parsed
   {PROG} tags --album-mode folder|clear|title|keep
   {PROG} tags --no-artist | --keep-picard-tags | --keep-tracks
+  {PROG} tags PATH --set-artist NAME set the Artist tag by hand (then `{PROG} organize` moves the file)
 
 DUPLICATES  (find_duplicates.py)  — report only, nothing is ever deleted or moved
   {PROG} duplicates                   find likely duplicate songs in duplicates.folders
