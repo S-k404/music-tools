@@ -41,6 +41,21 @@ class CombinationNameTests(unittest.TestCase):
         self.assertEqual(artists.query_variants("Radiohead"), ["Radiohead"])
 
 
+class GenreWordTests(unittest.TestCase):
+    def test_a_genre_in_the_artist_tag_is_not_looked_up_as_an_artist(self):
+        looked_up = []
+        found = {"ZARA": {"name": "ZARA", "link": "z", "picture_xl": "https://x/z.jpg", "nb_fan": 5}}
+
+        def fake_find(name):
+            looked_up.append(name)
+            return found.get(name), "", []
+        job = artists.Job("KPOP, House, ZARA")
+        with mock.patch.object(artists, "_find", side_effect=fake_find):
+            artists._search_job(job, {"search_results": 3})
+        self.assertEqual(looked_up, ["KPOP, House, ZARA", "ZARA"])
+        self.assertEqual([p.name for p in job.picks], ["ZARA"])
+
+
 class DroppedConnectionTests(unittest.TestCase):
     def setUp(self):
         for patcher in (mock.patch.object(artists.time, "sleep"), mock.patch.object(artists.API_LIMIT, "wait")):

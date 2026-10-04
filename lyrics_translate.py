@@ -42,6 +42,15 @@ class TranslateError(NetError):
     """This service couldn't translate right now."""
 
 
+class Untranslatable(TranslateError):
+    """Every service handed the text back as it was (or said source and target are the same language):
+    it is English, or close enough that there is nothing to translate. Not an outage."""
+
+
+def same_language_signal(error: Exception) -> bool:
+    return isinstance(error, Untranslatable) or "DISTINCT LANGUAGES" in str(error).upper()
+
+
 class Stopped(Exception):
     """Ctrl-C was pressed."""
 
@@ -363,7 +372,7 @@ class Translator:
     def translate(self, lines: list, source: str = "auto", verify: bool = True) -> Translation:
         if not lines:
             return Translation([], "", "")
-        live, problems = self._live(), []
+        live, problems, same = self._live(), [], 0
         if not live:
             why = "; ".join(f"{n}: {r}" for n, r in self.benched().items())
             raise TranslateError("no translation service is working right now" + (f" ({why})" if why else "")
@@ -382,14 +391,19 @@ class Translator:
                 if len(result) != len(lines):
                     raise TranslateError(f"{backend.name} returned the wrong number of lines")
                 if verify and not looks_translated(lines, result):
-                    raise TranslateError(f"{backend.name} returned the text untranslated")
+                    raise Untranslatable(f"{backend.name} returned the text untranslated")
             except NetError as e:
                 problems.append(f"{backend.name}: {e}")
-                self._failed(backend, e)
+                if same_language_signal(e):   # an answer about this text, not a service having trouble
+                    same += 1
+                else:
+                    self._failed(backend, e)
             else:
                 with self._lock:
                     self._strikes[backend.name] = 0
                 return Translation(result, lang.lower(), backend.name)
+        if same and same == len(problems):
+            raise Untranslatable("; ".join(problems))
         raise TranslateError("; ".join(problems))
 
     def detect(self, lines: list) -> str:

@@ -71,6 +71,9 @@ FEAT_RE = re.compile(r"\s*;\s*|\x00|\s+(?:feat\.?|ft\.?|featuring)\s+", re.IGNOR
 # "A & B", "A x B", "A with B", "A as B" (an alias), "A / B", "A、B", "A feat.B", "A vo. B"
 COMBO_RE = re.compile(r"\s+(?:&|and|x|\+|vs\.?|with|as)\s+|\s*[&＆×/、]\s*|,\s+|\s+(?:feat|ft|featuring|vo)\.\s*"
                       r"|\s+(?:feat|ft|featuring)\s+", re.IGNORECASE)
+# Words that show up as "artists" when a title or genre ends up in the artist tag ("KPOP, House, ZARA")
+GENRE_WORDS = {"house", "kpop", "k pop", "jpop", "j pop", "pop", "rock", "hip hop", "hiphop", "rap", "edm", "remix",
+               "mix", "music", "lofi", "lo fi", "phonk", "techno", "trap", "dnb", "drill", "anime", "ost", "dj"}
 TOPIC_RE = re.compile(r"\s+-\s+Topic$", re.IGNORECASE)   # YouTube's auto-generated channel names
 DEEZER_ARTIST_RE = re.compile(r"deezer\.com/(?:[a-z]{2}(?:-[a-z]{2})?/)?artist/(\d+)")
 # Deezer serves an empty-hash URL when an artist has no picture
@@ -483,7 +486,7 @@ def _search_job(job: Job, opts: dict) -> Job:
     else:
         # "A & B" isn't an artist of its own: look for A and B separately, at the
         # same time, so a three-way collaboration costs one lookup's wait, not three
-        parts = name_parts(job.name)
+        parts = [p for p in name_parts(job.name) if name_key(p) not in GENRE_WORDS]
         if parts and not STOP.is_set():
             with ThreadPoolExecutor(min(len(parts), 4)) as pool:
                 hits = list(pool.map(lambda part: (part, _find(part)[0]), parts))

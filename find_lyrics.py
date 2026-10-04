@@ -64,7 +64,7 @@ from lyrics_render import (LAYERS, Line, language_name, layer_label, parse_html_
                            render_terminal, render_txt)
 from lyrics_romanize import SUPPORTED, romanize
 from lyrics_romanize import status as romanize_status
-from lyrics_translate import Stopped, TranslateError, Translator
+from lyrics_translate import Stopped, TranslateError, Translator, Untranslatable
 from lyrics_ui import CatProgress, cat_says, fact, show_banner
 from lyrics_ui import width as terminal_width
 
@@ -293,6 +293,11 @@ def _process_job(job: Job, translator: Translator, translate: bool, options: Opt
                 source = f"{code}-romanized" if job.romanized else (written if written in SUPPORTED else "auto")
                 result = translator.translate(unique, source)
             except TranslateError as e:
+                if isinstance(e, Untranslatable) and code not in SUPPORTED and not job.romanized:
+                    # every service hands it back as it was: English, or close enough to need nothing
+                    job.status, job.certain = "skipped", True
+                    job.reason = "nothing to translate (the translation services return it unchanged)"
+                    return job
                 if not any(l.romaji for l in lyrics.lines):
                     raise TranslateError(f"couldn't translate: {e}") from e  # the original alone isn't worth saving
                 # Fallback: no service is answering, but the original and romanization are worth having now.
