@@ -733,6 +733,24 @@ class FindLyricsTests(unittest.TestCase):
         self.assertEqual(job.lyrics.lines[0].english, "Hello")
         self.assertEqual(job.backend, "fake")
 
+    def test_a_text_every_service_hands_back_unchanged_counts_as_english_not_a_failure(self):
+        self.fake_fetch([Line(1.0, "Vague hope nmgeai"), Line(3.0, "Sakura rain zephyr")])
+
+        class Unchanged:
+            def __init__(self, *a, **k):
+                pass
+
+            def detect(self, texts):
+                return "de"   # a wrong guess: the services then return the text untouched
+
+            def translate(self, texts, source):
+                raise find_lyrics.Untranslatable("google returned the text untranslated")
+        find_lyrics.Translator = Unchanged
+        job = find_lyrics.Job(Path("song.mp3"), "Artist", "Title")
+        find_lyrics.process_job(job, find_lyrics.Translator(), True)
+        self.assertEqual((job.status, job.certain), ("skipped", True))
+        self.assertIn("nothing to translate", job.reason)
+
     def test_process_job_skips_translation_when_already_english(self):
         self.fake_fetch([Line(1.0, "hello there")])
         self.fake_translator("en")

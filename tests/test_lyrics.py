@@ -81,6 +81,44 @@ class UnromanizeTests(unittest.TestCase):
         self.assertEqual(k(""), "")
 
 
+class UntranslatableTests(unittest.TestCase):
+    def chain(self, outcomes):
+        """Services that each either hand the lines back, raise, or translate; outcomes = {name: "same"|"distinct"|"busy"|"ok"}."""
+        def make(name, outcome):
+            class Fake(lyrics_translate.Backend):
+                def translate(self, lines, source):
+                    if outcome == "same":
+                        return list(lines), "en"
+                    if outcome == "distinct":
+                        raise TranslateError("MyMemory couldn't translate (PLEASE SELECT TWO DISTINCT LANGUAGES)")
+                    if outcome == "busy":
+                        raise TranslateError(f"{name} is busy")
+                    return [f"EN {l}" for l in lines], "de"
+            b = Fake()
+            b.name = name
+            return b
+        t = lyrics_translate.Translator([])
+        t.backends = [make(n, o) for n, o in outcomes.items()]
+        return t
+
+    def test_all_services_saying_same_language_is_untranslatable_and_nobody_is_benched(self):
+        t = self.chain({"google": "same", "mymemory": "distinct"})
+        with self.assertRaises(lyrics_translate.Untranslatable):
+            t.translate(["hold on to the light"], "auto")
+        self.assertEqual(t.benched(), {})
+        self.assertEqual(t._strikes, {})
+
+    def test_a_service_having_trouble_keeps_it_an_ordinary_failure(self):
+        t = self.chain({"google": "same", "mymemory": "busy"})
+        with self.assertRaises(TranslateError) as ctx:
+            t.translate(["hold on to the light"], "auto")
+        self.assertNotIsInstance(ctx.exception, lyrics_translate.Untranslatable)
+
+    def test_a_service_that_translates_wins(self):
+        t = self.chain({"google": "same", "mymemory": "ok"})
+        self.assertEqual(t.translate(["Hallo Welt"], "auto").lines, ["EN Hallo Welt"])
+
+
 class RomanizedChainTests(unittest.TestCase):
     def chain(self, *names, fail=()):
         seen = {}

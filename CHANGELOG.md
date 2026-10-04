@@ -1,5 +1,12 @@
 # Changelog
 
+## Fixed: genre words as artists, and English songs reported as lyrics failures
+
+- `mt artists` no longer looks up genre words from a garbled artist tag (`KPOP, House, ZARA` found an artist called "House").
+- `mt lyrics`: when every translation service hands the text back unchanged (or says source and target are the same
+  language) the song is English or close to it. It is now skipped and remembered as such instead of failing on every run,
+  and those answers no longer count as a service outage (so a service isn't set aside for them).
+
 ## Added: simpler commands
 
 - Easier names: `mt auto`, `mt covers`, `mt pics`, `mt check`, `mt fix`, `mt dupes` (the old names still work), plus two new
