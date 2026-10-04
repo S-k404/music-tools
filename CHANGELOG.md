@@ -1,5 +1,43 @@
 # Changelog
 
+## Added: `mt layout` (folder layout check and tidy) and artist pictures in each artist's folder
+
+- **`library_layout.py` (`mt layout`)** checks the `Artist/Album/Track` layout from folder names alone and, by
+  default, only reports: duplicate album folders (case, punctuation, quote and dash styles, a leading
+  `Artist - ` and a trailing `- EP` / `- Single` ignored), artist folders spelled two ways, collaboration-style
+  artist folders, macOS `._` junk, `.DS_Store`, `.lrc.bak` files beside songs, empty folders, odd names
+  (`null`, `Unknown`, emoji-only) and files loose in the library root. Your artist-picture folder and
+  `lyrics.backup_dir` are left out (`layout.ignore` adds more).
+- **`--clean`** deletes the junk, moves `.lrc.bak` files into `lyrics.backup_dir` (the mirrored layout
+  `--restore-lrc` already reads) and removes empty folders. **`--merge-albums`** merges each duplicate album folder
+  into the one with the most songs: songs travel with their lyrics and covers, nothing is overwritten,
+  byte-identical copies are dropped, different files of the same name are left alone, and `lyrics_checked.json` is
+  updated. Both only preview until `--apply`; every change is saved to `logs/layout_undo_<time>.json`, and
+  `--undo --apply` reverses it. `mt stats` gets a one-line layout summary and the menu a "Check folder layout" entry.
+- **`artist_art.placement`** (`shared` by default, or `artist_folder`; `mt artists --placement ...`) saves
+  `Artist/artist.jpg`, the name Plex, Jellyfin and Navidrome look for, when the artist has a folder of their own;
+  otherwise the picture goes to the shared folder as before. Pictures in either place count as done.
+- Tests: 191 (23 new).
+
+## Changed: faster, with less duplicated code (no change in what the tools do)
+
+- **`mt stats` walks the library once** instead of once per section (cover art, artist pictures,
+  lyrics, tags), and the tag check stops after reading the title for files that aren't a severe mismatch.
+- **`find_lyrics.py` / `find_artist_art.py`**: splitting "already done" from "to do" was quadratic (every
+  `in` check compared whole dataclasses); it is now one pass. 3.7 s -> under 1 ms for 4,650 songs.
+- **Connections are reused.** lrclib, Deezer, Google/MyMemory/DeepL/Claude and thumbnail requests keep one
+  connection per worker thread (`common.fetch_url`) instead of a new TLS handshake per request. Proxy
+  settings are still honoured (those requests go through urllib as before).
+- **lrclib answers are remembered for 10 minutes**, so spelling variants of one song that boil down to the
+  same query aren't asked twice.
+- **A song's tags are read once** in the lyrics tool (embedded lyrics reuse the already-parsed file).
+- **`pypinyin` loads on first use**: startup of `mt stats` / `mt duplicates` / the tag fixer drops from ~280 ms to ~120 ms.
+- Shared `plural` and `atomic_write` helpers replace three and three copies; removed unused code
+  (`magenta`, `sky`, `BACKEND_NAMES`, the unreachable `duration_of` fallback, the duplicate `_norm`).
+- Tests: 168 (17 new, covering connection reuse against a local server, the lrclib cache, `atomic_write`
+  and the single-walk library). Without `mutagen`/Pillow installed the test modules now skip with a
+  message instead of failing at import. CI caches pip.
+
 ## Added: a duplicate-song finder and a one-screen library stats view
 
 Two new report-only tools, wired into `mt` and the interactive menu the same way as the

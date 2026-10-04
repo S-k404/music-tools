@@ -108,12 +108,15 @@ def made_by_us(path: Path) -> bool:
     return b"[by:music-tools" in head or b'content="music-tools"' in head
 
 
-def embedded_lyrics(song: Path) -> str:
-    """Lyrics stored in the song's tags ('' if there are none, or the tags can't be read)."""
+def embedded_lyrics(song: Path, parsed=None) -> str:
+    """Lyrics stored in the song's tags ('' if there are none, or the tags can't be read). `parsed` is the
+    song's already-opened mutagen file, if the caller has one, so the file isn't read a second time."""
     try:
         ext = song.suffix.lower()
+        tags = getattr(parsed, "tags", None)
         if ext == ".mp3":
-            tags = ID3(song)
+            if not hasattr(tags, "getall"):
+                tags = ID3(song)  # also reads a file that's only tags, which mutagen.File won't recognise
             for fr in tags.getall("SYLT"):
                 if getattr(fr, "format", 0) == 2 and fr.text:  # timestamps in milliseconds
                     return "\n".join(f"[{timestamp(ms / 1000)}]{' '.join(str(t).split())}" for t, ms in fr.text)
@@ -121,13 +124,15 @@ def embedded_lyrics(song: Path) -> str:
                 if str(fr.text).strip():
                     return str(fr.text)
         elif ext in (".m4a", ".mp4"):
-            values = (MP4(song).tags or {}).get("\xa9lyr", [])
+            values = (tags if tags is not None else MP4(song).tags or {}).get("\xa9lyr", [])
             if values and str(values[0]).strip():
                 return str(values[0])
         elif ext in (".flac", ".ogg", ".opus"):
-            f = MutagenFile(song)
+            if tags is None:
+                f = MutagenFile(song)
+                tags = f.tags if f is not None else None
             for key in ("syncedlyrics", "lyrics", "unsyncedlyrics", "unsynced lyrics"):
-                values = f.tags.get(key) if f is not None and f.tags else None
+                values = tags.get(key) if tags else None
                 if values and str(values[0]).strip():
                     return str(values[0])
     except Exception:
@@ -154,7 +159,7 @@ def lyrics_from_file(path: Path, artist: str = "", title: str = "") -> Lyrics:
     return lyrics
 
 
-def local_lyrics(song: Path, artist: str = "", title: str = "") -> Lyrics | None:
+def local_lyrics(song: Path, artist: str = "", title: str = "", parsed=None) -> Lyrics | None:
     """
     Lyrics found next to or inside the song: its own .lrc (unless music-tools
     wrote it), else the tags. None if there aren't any or they can't be read.
@@ -165,7 +170,7 @@ def local_lyrics(song: Path, artist: str = "", title: str = "") -> Lyrics | None
             found = lyrics_from_text(read_text_file(side), side.name, artist, title)
             if found:
                 return found
-        text = embedded_lyrics(song)
+        text = embedded_lyrics(song, parsed)
         if text.strip():
             return lyrics_from_text(text, "the song's tags", artist, title)
     except (OSError, LocalLyricsError):

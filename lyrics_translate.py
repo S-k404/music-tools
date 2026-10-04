@@ -19,17 +19,15 @@ import os
 import re
 import threading
 import time
-import unicodedata
 import urllib.error
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass
 
-from common import STOP
+from common import STOP, fetch_url
+from lyrics_lang import norm
 from lyrics_unromanize import romaji_to_kana
 
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-BACKEND_NAMES = ("google", "mymemory", "deepl", "claude")
 
 
 class NetError(Exception):
@@ -64,9 +62,7 @@ def request_json(url: str, what: str, data=None, headers=None, timeout: float = 
         if STOP.is_set():
             raise Stopped()
         try:
-            req = urllib.request.Request(url, data=body, headers=hdrs)
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                raw = resp.read()
+            raw = fetch_url(url, data=body, headers=hdrs, timeout=timeout)
             try:
                 return json.loads(raw)
             except ValueError:
@@ -89,10 +85,6 @@ def request_json(url: str, what: str, data=None, headers=None, timeout: float = 
         if attempt < retries:
             time.sleep(pause)
     raise NetError(problem)
-
-
-def _norm(s: str) -> str:
-    return re.sub(r"[\W_]+", "", unicodedata.normalize("NFKC", s).casefold())
 
 
 def _clean(s: str) -> str:
@@ -298,7 +290,7 @@ def looks_translated(source: list, result: list) -> bool:
     letters = [(a, b) for a, b in zip(source, result) if any(c.isalpha() for c in a)]
     if not letters:
         return True
-    changed = sum(1 for a, b in letters if b.strip() and _norm(a) != _norm(b))
+    changed = sum(1 for a, b in letters if b.strip() and norm(a) != norm(b))
     return changed / len(letters) >= 0.1
 
 
