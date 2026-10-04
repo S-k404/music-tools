@@ -46,6 +46,12 @@ class CliTests(unittest.TestCase):
         _, calls, _ = self.run_cli("undo", "-n")
         self.assertEqual(calls, [("layout", ["--undo"])])
 
+    def test_duplicate_removal_options_reach_the_tool(self):
+        _, calls, _ = self.run_cli("dupes", "--delete", "--apply", "--yes", "--no-fix-albums", "Mixes")
+        self.assertEqual(calls, [("duplicates", ["--delete", "--apply", "--yes", "--no-fix-albums", "Mixes"])])
+        _, calls, _ = self.run_cli("dupes", "--Delete", "--no-fix_albums")   # slips: capital letter, underscore
+        self.assertEqual(calls, [("duplicates", ["--delete", "--no-fix-albums"])])
+
     def test_flag_slips_are_forgiven(self):
         for slip in ("--dryrun", "--dry_run", "--Dry-Run", "-n"):
             _, calls, _ = self.run_cli("auto", slip)

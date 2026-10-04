@@ -4,6 +4,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -291,6 +292,24 @@ class SidecarAndPlanTests(unittest.TestCase):
         # Both songs should share the exact same album destination folder
         self.assertEqual(plan1.dest_audio.parent, plan2.dest_audio.parent)
 
+
+
+class OrganizeOneSongTests(unittest.TestCase):
+    """`mt organize PATH` takes files as well as folders (the duplicate remover hands it just the songs it kept)."""
+
+    def test_a_single_song_can_be_organized(self):
+        with tempfile.TemporaryDirectory() as d:
+            lib = Path(d) / "lib"
+            song = lib / "YouTube" / "Artist - Title.mp3"
+            song.parent.mkdir(parents=True)
+            song.write_bytes(b"")
+            config = Path(d) / "config.toml"
+            config.write_text(f'music_dir = "{lib}"\nsave_logs = false\n')
+            with redirect_stdout(io.StringIO()):
+                code = org.main([str(song), "--no-auto-album", "--no-progress", "--config", str(config)])
+            self.assertEqual(code, 0)
+            self.assertTrue((lib / "Artist" / "Singles" / "Artist - Title.mp3").is_file())
+            self.assertFalse(song.exists())
 
 
 class RunAllTests(unittest.TestCase):
