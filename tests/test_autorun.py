@@ -78,9 +78,10 @@ class LayoutMenuTests(unittest.TestCase):
         return runs
 
     def test_each_row_runs_the_matching_layout_command(self):
-        self.assertEqual(self.pick(0, 1, 2, 3, 4), [
+        self.assertEqual(self.pick(0, 1, 2, 3, 4, 5), [
             ("layout", []),
-            ("layout", ["--clean", "--merge-albums", "--apply"]),
+            ("layout", ["--clean", "--merge-artists", "--merge-albums", "--apply"]),
+            ("layout", ["--merge-artists", "--apply"]),
             ("layout", ["--merge-albums", "--apply"]),
             ("layout", ["--clean", "--apply"]),
             ("layout", ["--undo", "--apply"]),

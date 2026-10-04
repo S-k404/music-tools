@@ -185,6 +185,20 @@ class MergeTests(LayoutTestCase):
         ll.do_merge(s, s.albums, apply=False)
         self.assertEqual(snapshot(self.root), before)
 
+    def test_artist_folders_spelled_two_ways_merge_into_the_fuller_one_and_undo(self):
+        self.make({"100 gecs/1000 gecs/a.mp3": "a", "100 gecs/1000 gecs/b.mp3": "b", "100 gecs/1000 gecs/e.mp3": "e", "100gecs/1000 gecs/c.mp3": "c",
+                   "100gecs/Singles/d.mp3": "d", "100gecs/Singles/d.lrc": "words"})
+        before = snapshot(self.root)
+        s = self.scan()
+        (group,) = s.artists
+        self.assertEqual(group.folders[0].path.name, "100 gecs")
+        saved = ll.do_merge(s, s.artists, apply=True, what="artist").save()
+        self.assertFalse((self.root / "100gecs").exists())
+        for rel in ("1000 gecs/c.mp3", "Singles/d.mp3", "Singles/d.lrc"):
+            self.assertTrue((self.root / "100 gecs" / rel).is_file(), rel)
+        ll.do_undo(saved, apply=True)
+        self.assertEqual(snapshot(self.root), before)
+
     def test_merge_moves_songs_with_their_files_and_never_overwrites(self):
         self.library()
         s = self.scan()

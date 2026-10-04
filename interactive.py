@@ -651,8 +651,10 @@ class App:
     # ---- folder layout
     LAYOUT_ACTIONS = (
         ("Show the report", "duplicate albums, junk, odd names — changes nothing", []),
-        ("Tidy everything", "delete junk + merge ALL duplicate albums; shows the list, asks, saves an undo file",
-         ["--clean", "--merge-albums", "--apply"]),
+        ("Tidy everything", "delete junk, merge ALL duplicate albums and artist folders; shows the list, asks, saves an undo file",
+         ["--clean", "--merge-artists", "--merge-albums", "--apply"]),
+        ("Merge artist folders spelled two ways", "100 gecs / 100gecs: all their files move into the fuller folder",
+         ["--merge-artists", "--apply"]),
         ("Merge all duplicate albums", "songs and lyrics move into the fuller folder; nothing is overwritten",
          ["--merge-albums", "--apply"]),
         ("Clean junk only", "._ files, .DS_Store, .lrc.bak files; empty folders", ["--clean", "--apply"]),
@@ -661,7 +663,7 @@ class App:
 
     def layout(self):
         """Report, or tidy: the tool itself prints what it would do and asks before changing anything.
-        Artist folders spelled two ways and collaboration folders are only ever reported."""
+        Collaboration folders and odd names (Unknown, null) are only ever reported."""
         cursor = 0
         while True:
             rows = [(label, hint) for label, hint, _ in self.LAYOUT_ACTIONS]

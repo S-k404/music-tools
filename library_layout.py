@@ -259,7 +259,7 @@ def print_report(s: Scan, report_file: str = None) -> None:
     summary = "   ".join(f"{n} {one if n == 1 else many}" for n, one, many in problems if n) or "nothing to tidy"
     print("  " + (yellow if any(p[0] for p in problems) else green)(f"{len(s.artist_dirs)} artist folders, "
                                                                      f"{s.audio_total} songs  ·  {summary}"))
-    print(dim("  Report only: nothing was changed. --clean and --merge-albums preview fixes (--apply does them).\n"))
+    print(dim("  Report only: nothing was changed. --clean, --merge-albums and --merge-artists preview fixes (--apply does them).\n"))
     if report_file:
         try:
             text = "\n\n".join(f"{t}\n" + "\n".join("  " + l.replace("\n", "\n  ") for l in lines)
@@ -389,10 +389,11 @@ def do_clean(s: Scan, backup_dir, apply: bool) -> Recorder:
     return rec
 
 
-def do_merge(s: Scan, groups: list, apply: bool, rec: Recorder = None) -> Recorder:
+def do_merge(s: Scan, groups: list, apply: bool, rec: Recorder = None, what: str = "duplicate album") -> Recorder:
+    """Move everything in each group's other folders into its first (the one kept). Works for album groups and,
+    with what="artist", for artist folders spelled two ways: the files keep their path below the folder."""
     rec = rec or Recorder(s.root)
-    title = "Merging duplicate album folders" if apply else "Merge preview: nothing changed"
-    section(title)
+    section(f"Merging {what} folders" if apply else f"Merge preview ({what} folders): nothing changed")
     totals = Counter()
     mapping = {}
     for g in groups:
@@ -509,6 +510,7 @@ def main():
     ap.add_argument("--report", metavar="FILE", help="save the full lists as a plain text file")
     ap.add_argument("--clean", action="store_true", help="delete junk files, move .lrc.bak files to lyrics.backup_dir, remove empty folders")
     ap.add_argument("--merge-albums", action="store_true", help="merge duplicate album folders into the one with the most songs")
+    ap.add_argument("--merge-artists", action="store_true", help="merge artist folders spelled two ways into the one with the most songs")
     ap.add_argument("--undo", nargs="?", const=True, metavar="FILE", help="reverse the latest run (or the given undo file)")
     ap.add_argument("--apply", action="store_true", help="really do it (without this, --clean/--merge-albums/--undo only preview)")
     ap.add_argument("--yes", action="store_true", help="don't ask before --apply")
@@ -535,10 +537,11 @@ def main():
     log(f"  Reading {cfg['music_dir']} …")
     s = scan(cfg["music_dir"], skip_folders(cfg))
     print_report(s, args.report)
-    if not (args.clean or args.merge_albums):
+    if not (args.clean or args.merge_albums or args.merge_artists):
         return
     if args.apply and not args.yes:
-        what = " and ".join(w for w, on in (("clean up junk", args.clean), ("merge duplicate albums", args.merge_albums)) if on)
+        what = " and ".join(w for w, on in (("clean up junk", args.clean), ("merge artist folders", args.merge_artists),
+                                            ("merge duplicate albums", args.merge_albums)) if on)
         if not confirm(f"Really {what} in {cfg['music_dir']}? An undo file is saved."):
             sys.exit("Nothing was changed.")
     rec = None
@@ -546,9 +549,13 @@ def main():
     try:
         if args.clean:
             rec = do_clean(s, backup_dir, args.apply)
-        if args.merge_albums and not STOP.is_set():
+        if args.merge_artists and not STOP.is_set():
             if args.apply and args.clean:
                 s = scan(cfg["music_dir"], skip_folders(cfg))   # folders changed during the cleanup
+            rec = do_merge(s, s.artists, args.apply, rec, what="artist")
+        if args.merge_albums and not STOP.is_set():
+            if args.apply and (args.clean or args.merge_artists):
+                s = scan(cfg["music_dir"], skip_folders(cfg))   # folders changed during the earlier steps
             rec = do_merge(s, s.albums, args.apply, rec)
     finally:
         saved = rec.save() if rec and args.apply else None
