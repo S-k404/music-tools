@@ -414,19 +414,28 @@ def youtube_channels(name: str) -> list:
 
 def popular_video_channels(name: str, limit: int = 3) -> list:
     """
-    Channels that uploaded the most-watched videos for `name`, most-viewed first, as
-    channel dicts with a picture. For artists whose own channel is named differently
-    (a romanised name, a label, a "- Topic" channel): the videos still say who they are.
+    Channels that uploaded the most-watched videos for `name`, as channel dicts with a
+    picture. For artists whose own channel is named differently (a romanised name, a
+    label, a "- Topic" channel): the videos still say who they are. Only videos with
+    the name in their title count: YouTube pads a search for an obscure name with
+    popular but unrelated videos, and those channels are noise. Channels named after
+    the artist come first, then the most-viewed.
     """
+    wanted = "".join(word_list(name))
+    if not wanted:
+        return []
     views, info = {}, {}
     for e in _youtube_entries(YOUTUBE_VIDEO_SEARCH.format(urllib.parse.quote_plus(name))):
         cid, channel = e.get("channel_id"), e.get("channel")
         if e.get("ie_key") != "Youtube" or not cid or not channel:
             continue
+        if wanted not in "".join(word_list(e.get("title") or "")) + "".join(word_list(channel)):
+            continue
         views[cid] = views.get(cid, 0) + int(e.get("view_count") or 0)
         info[cid] = channel
+    named_after_it = lambda cid: wanted in "".join(word_list(info[cid]))
     out = []
-    for cid in sorted(views, key=views.get, reverse=True)[:limit]:
+    for cid in sorted(views, key=lambda c: (not named_after_it(c), -views[c]))[:limit]:
         # A video entry has no channel picture, so look the channel up by name and keep the one with this id
         mine = [c for c in youtube_channels(info[cid]) if cid in c["link"]]
         if mine:
