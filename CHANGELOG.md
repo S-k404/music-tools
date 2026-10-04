@@ -1,5 +1,24 @@
 # Changelog
 
+## Added: `mt layout` (folder layout check and tidy) and artist pictures in each artist's folder
+
+- **`library_layout.py` (`mt layout`)** checks the `Artist/Album/Track` layout from folder names alone and, by
+  default, only reports: duplicate album folders (case, punctuation, quote and dash styles, a leading
+  `Artist - ` and a trailing `- EP` / `- Single` ignored), artist folders spelled two ways, collaboration-style
+  artist folders, macOS `._` junk, `.DS_Store`, `.lrc.bak` files beside songs, empty folders, odd names
+  (`null`, `Unknown`, emoji-only) and files loose in the library root. Your artist-picture folder and
+  `lyrics.backup_dir` are left out (`layout.ignore` adds more).
+- **`--clean`** deletes the junk, moves `.lrc.bak` files into `lyrics.backup_dir` (the mirrored layout
+  `--restore-lrc` already reads) and removes empty folders. **`--merge-albums`** merges each duplicate album folder
+  into the one with the most songs: songs travel with their lyrics and covers, nothing is overwritten,
+  byte-identical copies are dropped, different files of the same name are left alone, and `lyrics_checked.json` is
+  updated. Both only preview until `--apply`; every change is saved to `logs/layout_undo_<time>.json`, and
+  `--undo --apply` reverses it. `mt stats` gets a one-line layout summary and the menu a "Check folder layout" entry.
+- **`artist_art.placement`** (`shared` by default, or `artist_folder`; `mt artists --placement ...`) saves
+  `Artist/artist.jpg`, the name Plex, Jellyfin and Navidrome look for, when the artist has a folder of their own;
+  otherwise the picture goes to the shared folder as before. Pictures in either place count as done.
+- Tests: 191 (23 new).
+
 ## Changed: faster, with less duplicated code (no change in what the tools do)
 
 - **`mt stats` walks the library once** instead of once per section (cover art, artist pictures,

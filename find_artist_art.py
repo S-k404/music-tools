@@ -41,7 +41,7 @@ import time
 import unicodedata
 import urllib.error
 import urllib.parse
-from collections import Counter
+from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -143,17 +143,37 @@ def safe_filename(name: str) -> str:
     return s.strip().lstrip(".")[:120].strip() or "artist"
 
 
-def existing_image(out_dir: Path, name: str):
+def artist_homes(music_dir) -> dict:
+    """name_key -> the artist's own folder at the top of the library, for placement = "artist_folder".
+    A name that more than one folder spells alike is left out: there's no telling which one is meant."""
+    found = defaultdict(list)
+    try:
+        for d in sorted(Path(music_dir).iterdir()):
+            if d.is_dir() and not d.name.startswith((".", "$")):
+                found[name_key(d.name)].append(d)
+    except OSError:
+        return {}
+    return {key: dirs[0] for key, dirs in found.items() if key and len(dirs) == 1}
+
+
+def _home(homes, name: str):
+    return homes.get(name_key(name)) if homes else None
+
+
+def existing_image(out_dir: Path, name: str, homes: dict = None):
+    """The picture already saved for `name`: in out_dir as <Artist>.jpg or, with `homes`, as artist.jpg in its own folder."""
     stem = safe_filename(name)
-    return next((p for ext in IMAGE_EXTS if (p := out_dir / (stem + ext)).is_file()), None)
+    found = next((p for ext in IMAGE_EXTS if (p := out_dir / (stem + ext)).is_file()), None)
+    home = _home(homes, name)
+    return found or (next((p for ext in IMAGE_EXTS if (p := home / ("artist" + ext)).is_file()), None) if home else None)
 
 
-def has_picture(out_dir: Path, name: str) -> bool:
+def has_picture(out_dir: Path, name: str, homes: dict = None) -> bool:
     """True if `name` has a picture, or is 'A & B' and both A and B do."""
-    if existing_image(out_dir, name):
+    if existing_image(out_dir, name, homes):
         return True
     parts = name_parts(name)
-    return bool(parts) and all(existing_image(out_dir, part) for part in parts)
+    return bool(parts) and all(existing_image(out_dir, part, homes) for part in parts)
 
 
 # ---------------------------------------------------------------- reading the library
@@ -576,14 +596,15 @@ def review(job: Job) -> None:
         return
 
 
-def save_picture(out_dir: Path, pick: Pick, force: bool) -> None:
+def save_picture(out_dir: Path, pick: Pick, force: bool, homes: dict = None) -> None:
     if STOP.is_set():
         pick.saved = "error: stopped before saving"
         return
-    if not force and existing_image(out_dir, pick.name):
+    if not force and existing_image(out_dir, pick.name, homes):
         pick.saved = "exists"
         return
-    target = out_dir / (safe_filename(pick.name) + ".jpg")
+    home = _home(homes, pick.name)
+    target = home / "artist.jpg" if home else out_dir / (safe_filename(pick.name) + ".jpg")
     try:
         atomic_write(target, pick.image)
         pick.saved = "saved"
@@ -605,7 +626,7 @@ def fact(label: str, value) -> None:
     log(f"  {dim(fit(label, 11))}{value}")
 
 
-def report(todo: list, have: list, out_dir: Path, dry_run: bool) -> None:
+def report(todo: list, have: list, out_dir: Path, dry_run: bool, homes: dict = None) -> None:
     ready = [j for j in todo if j.status == "done" or (dry_run and j.status == "ready")]
     failed = [j for j in todo if j.status == "failed"]
     picks = [(j, p) for j in ready for p in j.picks]
@@ -647,7 +668,7 @@ def report(todo: list, have: list, out_dir: Path, dry_run: bool) -> None:
         (red if failed else dim)(f"✗ {len(failed)} not found"),
     ]))
     if saved:
-        print(dim(f"  Pictures are in {out_dir}"))
+        print(dim(f"  Pictures are in each artist's own folder (artist.jpg), or in {out_dir}" if homes else f"  Pictures are in {out_dir}"))
     print()
 
 
@@ -662,12 +683,17 @@ def main():
     ap.add_argument("--force", action="store_true", default=None, help="replace pictures that already exist")
     ap.add_argument("--auto", action="store_true", help="never ask; skip artists without an exact match")
     ap.add_argument("--workers", type=int, choices=range(1, 65), metavar="1-64", help="parallel lookups")
+    ap.add_argument("--placement", choices=("shared", "artist_folder"),
+                    help="shared: all pictures in one folder; artist_folder: artist.jpg inside each artist's own folder")
     ap.add_argument("--no-progress", action="store_true", help="hide progress bars")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
     start_log("artist-art", cfg)
     opts = dict(cfg["artist_art"])
+    if args.placement:
+        opts["placement"] = args.placement
+    homes = artist_homes(cfg["music_dir"]) if opts["placement"] == "artist_folder" else None
     if args.force:
         opts["force"] = True
     workers = max(1, min(64, args.workers or cfg["workers"]))
@@ -705,9 +731,9 @@ def main():
     # 2. which of them still need a picture
     have, todo = [], []
     for j in jobs:  # one pass; `j not in have` would compare whole dataclasses field by field, O(n^2)
-        (have if not opts["force"] and has_picture(out_dir, j.name) else todo).append(j)
+        (have if not opts["force"] and has_picture(out_dir, j.name, homes) else todo).append(j)
     fact("Artists", f"{len(jobs)}  {dim('·')}  {len(have)} already have a picture  {dim('·')}  {bold(str(len(todo)))} to find")
-    fact("Saving to", str(out_dir))
+    fact("Saving to", f"each artist's own folder (artist.jpg), else {out_dir}" if homes else str(out_dir))
     if args.list_missing:
         width = min(32, max([text_width(j.name) for j in todo] or [8]))
         section("Without a picture" if todo else "Every artist has a picture")
@@ -750,10 +776,11 @@ def main():
     # 5. save
     ready = [j for j in todo if j.status == "ready"]
     if ready and not args.dry_run:
-        try:
-            out_dir.mkdir(parents=True, exist_ok=True)
-        except OSError as e:
-            sys.exit(f"Could not create {out_dir}: {e.strerror or e}")
+        if not homes or any(name_key(p.name) not in homes for j in ready for p in j.picks):
+            try:
+                out_dir.mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                sys.exit(f"Could not create {out_dir}: {e.strerror or e}")
         picks, seen = [], set()
         for j in ready:
             for p in j.picks:
@@ -761,7 +788,7 @@ def main():
                     seen.add(safe_filename(p.name).casefold())
                     picks.append(p)
         with ThreadPoolExecutor(min(workers, 4)) as pool:  # disk-bound; don't thrash the drive
-            list(progress(pool.map(lambda p: save_picture(out_dir, p, opts["force"]), picks),
+            list(progress(pool.map(lambda p: save_picture(out_dir, p, opts["force"], homes), picks),
                           len(picks), "Saving pictures", quiet, unit="picture"))
         for j in ready:
             j.status = "done"
@@ -769,7 +796,7 @@ def main():
                 p.saved = p.saved or "exists"  # found again under another name this run
 
     # 6. report
-    report(todo, have, out_dir, args.dry_run)
+    report(todo, have, out_dir, args.dry_run, homes)
 
 
 if __name__ == "__main__":
