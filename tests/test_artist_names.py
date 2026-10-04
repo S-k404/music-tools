@@ -115,3 +115,16 @@ class DroppedConnectionTests(unittest.TestCase):
         self.assertEqual([c["name"] for c in got], ["Whoever Official", "Whoever"])
         self.assertTrue(got[0]["picture_xl"].startswith("https://x/a=s800-"))
         self.assertEqual(artists.popular_video_channels("   "), [])
+
+
+    def test_a_youtube_channel_link_gives_the_channels_square_avatar_not_its_banner(self):
+        thumbs = [{"id": "0", "url": "https://x/banner=w1060-fcrop", "width": 1060, "height": 175},
+                  {"id": "avatar_uncropped", "url": "https://yt3.googleusercontent.com/a=s88-c", "width": 88, "height": 88}]
+        real = artists.channel_thumbnails
+        artists.channel_thumbnails = lambda url: thumbs
+        self.addCleanup(setattr, artists, "channel_thumbnails", real)
+        self.assertEqual(artists.channel_avatar("https://www.youtube.com/@shigureui"),
+                         "https://yt3.googleusercontent.com/a=s800-c")
+        for link in ("https://www.youtube.com/@shigureui", "https://youtube.com/channel/UCabc/videos"):
+            self.assertTrue(artists.YOUTUBE_CHANNEL_URL_RE.match(link), link)
+        self.assertIsNone(artists.YOUTUBE_CHANNEL_URL_RE.match("https://i.ytimg.com/vi/x/hq.jpg"))

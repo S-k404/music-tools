@@ -75,6 +75,7 @@ COMBO_RE = re.compile(r"\s+(?:&|and|x|\+|vs\.?|with|as)\s+|\s*[&＆×/、]\s*|,\
 GENRE_WORDS = {"house", "kpop", "k pop", "jpop", "j pop", "pop", "rock", "hip hop", "hiphop", "rap", "edm", "remix",
                "mix", "music", "lofi", "lo fi", "phonk", "techno", "trap", "dnb", "drill", "anime", "ost", "dj"}
 TOPIC_RE = re.compile(r"\s+-\s+Topic$", re.IGNORECASE)   # YouTube's auto-generated channel names
+YOUTUBE_CHANNEL_URL_RE = re.compile(r"^https?://(?:www\.|m\.)?youtube\.com/(?:@|channel/|c/|user/)[^\s/?#]+", re.IGNORECASE)
 DEEZER_ARTIST_RE = re.compile(r"deezer\.com/(?:[a-z]{2}(?:-[a-z]{2})?/)?artist/(\d+)")
 # Deezer serves an empty-hash URL when an artist has no picture
 NO_PICTURE_MARKERS = ("/artist//", "d41d8cd98f00b204e9800998ecf8427e")
@@ -471,8 +472,32 @@ def fetch_picture(pick: Pick) -> None:
         raise RuntimeError(f"couldn't download the picture for {pick.name}: {e}") from e
 
 
+def channel_thumbnails(url: str) -> list:
+    """The pictures (avatar, banner) of a YouTube channel page, as yt-dlp lists them."""
+    try:
+        r = subprocess.run(["yt-dlp", "--no-warnings", "--flat-playlist", "--playlist-items", "0", "-J", url],
+                           capture_output=True, text=True, timeout=60)
+        return json.loads(r.stdout).get("thumbnails") or []
+    except FileNotFoundError:
+        raise ValueError("yt-dlp isn't installed, so I can't read YouTube channel pages")
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, AttributeError, OSError):
+        raise ValueError("couldn't read that YouTube channel")
+
+
+def channel_avatar(url: str) -> str:
+    """The profile picture of the YouTube channel at `url` (not its banner), as a big image URL."""
+    thumbs = channel_thumbnails(url)
+    # the avatar is the square one; the banner is a wide strip
+    square = [t for t in thumbs if "avatar" in str(t.get("id", "")) or
+              (t.get("width") and t.get("width") == t.get("height"))]
+    picture = big_avatar(square)
+    if not picture:
+        raise ValueError("that YouTube channel has no profile picture I can read")
+    return picture
+
+
 def pick_from_text(name: str, text: str) -> Pick:
-    """A Deezer artist link, an image link, or an image file the user gave us."""
+    """A Deezer artist link, a YouTube channel link, an image link, or an image file the user gave us."""
     try:
         parts = shlex.split(text)  # a file dragged into the terminal arrives quoted/escaped
         text = parts[0] if len(parts) == 1 else text
@@ -485,6 +510,8 @@ def pick_from_text(name: str, text: str) -> Pick:
         if not picture_of(artist):
             raise ValueError("Deezer has no picture for that artist")
         pick = make_pick(name, artist)
+    elif YOUTUBE_CHANNEL_URL_RE.match(text):
+        pick = Pick(name, link=text, picture_url=channel_avatar(YOUTUBE_CHANNEL_URL_RE.match(text).group(0)))
     elif text.lower().startswith(("http://", "https://")):
         pick = Pick(name, picture_url=text)
     elif Path(text).expanduser().is_file():
@@ -492,7 +519,7 @@ def pick_from_text(name: str, text: str) -> Pick:
         pick.image = as_jpeg(Path(text).expanduser().read_bytes())
         return pick
     else:
-        raise ValueError("that's not a Deezer artist link, an image link, or an image file")
+        raise ValueError("that's not a Deezer artist link, a YouTube channel link, an image link, or an image file")
     fetch_picture(pick)
     return pick
 
@@ -651,7 +678,7 @@ def review(job: Job) -> None:
         print(f'      {cyan(str(i))}  {fit(a["name"], min(width, 32))}  '
               f'{dim(fit(compact(int(a.get("nb_fan") or 0)) + " fans", 12))} {dim(a.get("link", ""))}')
     while True:
-        ans = input(f"    {cyan('❯')} pick 1-{len(job.candidates)}, paste a Deezer artist link / image link / image file, "
+        ans = input(f"    {cyan('❯')} pick 1-{len(job.candidates)}, paste a Deezer or YouTube channel link / image link / image file, "
                     f"or {dim('Enter to skip')}: ").strip()
         if not ans:
             job.status, job.reason = "failed", "skipped by you"
@@ -750,7 +777,7 @@ def main():
     ap.add_argument("paths", nargs="*", help="files/folders to read artists from (default: artist_art.folders from the config)")
     ap.add_argument("--config", help="path to a config.toml")
     ap.add_argument("--artist", action="append", metavar="NAME", help="look up this artist instead of scanning songs (repeat for several)")
-    ap.add_argument("--image", metavar="LINK_OR_FILE", help="use this Deezer artist link, image link or image file for the one --artist (implies --force)")
+    ap.add_argument("--image", metavar="LINK_OR_FILE", help="use this Deezer artist link, YouTube channel link, image link or image file for the one --artist (implies --force)")
     ap.add_argument("--list-missing", action="store_true", help="only list artists without a picture; no downloading")
     ap.add_argument("--dry-run", action="store_true", help="look artists up but don't save anything")
     ap.add_argument("--force", action="store_true", default=None, help="replace pictures that already exist")
