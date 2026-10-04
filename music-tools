@@ -112,6 +112,15 @@ DUPLICATES  (find_duplicates.py)  — report only, nothing is ever deleted or mo
 LIBRARY STATS  (library_stats.py)  — one-screen health check, read-only and offline
   {PROG} stats                        cover art, artist pictures, lyrics and tag coverage in one view
 
+FOLDER LAYOUT  (library_layout.py)  — report only unless you add --apply
+  {PROG} layout                       duplicate album folders, junk files, odd folder names, empty folders
+  {PROG} layout --report layout.txt   also save the full lists as a text file
+  {PROG} layout --clean               preview deleting ._ junk, moving .lrc.bak files to lyrics.backup_dir,
+                                     removing empty folders (add --apply to do it)
+  {PROG} layout --merge-albums        preview merging duplicate album folders (songs travel with their
+                                     lyrics and covers; nothing is overwritten; add --apply to do it)
+  {PROG} layout --undo --apply        reverse the latest run (an undo file is saved in logs/)
+
 BOTH
   --config FILE        use a different config file      --workers N   parallel jobs (1-64)
   --no-progress        hide progress bars               Ctrl-C        stop safely
@@ -121,10 +130,12 @@ BOTH
   {PROG} help lyrics      full options for the lyrics tool
   {PROG} help tags        full options for the tag tool
   {PROG} help duplicates  full options for the duplicate-finder tool
+  {PROG} help layout      full options for the folder layout tool
 """
 
 SCRIPTS = {"art": "fix_album_art.py", "artists": "find_artist_art.py", "lyrics": "find_lyrics.py",
-          "tags": "fix_misidentified_tags.py", "duplicates": "find_duplicates.py", "stats": "library_stats.py"}
+          "tags": "fix_misidentified_tags.py", "duplicates": "find_duplicates.py", "stats": "library_stats.py",
+          "layout": "library_layout.py"}
 
 
 def run_script(name: str, args: list) -> int:

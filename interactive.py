@@ -28,7 +28,8 @@ except ImportError:
 
 FAILED_LIST = HERE / "failed_album_art.txt"
 SCRIPTS = {"art": "fix_album_art.py", "artists": "find_artist_art.py", "lyrics": "find_lyrics.py",
-          "tags": "fix_misidentified_tags.py", "duplicates": "find_duplicates.py", "stats": "library_stats.py"}
+          "tags": "fix_misidentified_tags.py", "duplicates": "find_duplicates.py", "stats": "library_stats.py",
+          "layout": "library_layout.py"}
 
 # ---------------------------------------------------------------- styling
 ANIMATE = not os.environ.get("MUSIC_TOOLS_NO_ANIMATION")
@@ -360,6 +361,7 @@ class App:
                 ("Fix wrong tags", "rebuild tags from filenames"),
                 ("Find duplicate songs", "report only — nothing is ever deleted"),
                 ("Library stats", "one-screen health check, read-only"),
+                ("Check folder layout", "duplicate folders, junk files — report only"),
                 ("Folders", "change which folders are used"),
                 ("Settings", "matching, cropping, tag options…"),
                 ("Logs", "see what previous runs did"),
@@ -372,7 +374,7 @@ class App:
                 return
             cursor = choice
             [self.find_missing, self.add_art, self.retry, self.artists, self.lyrics, self.fix_tags,
-             self.duplicates, self.stats, self.folders, self.settings, self.logs, self.help][choice]()
+             self.duplicates, self.stats, self.layout, self.folders, self.settings, self.logs, self.help][choice]()
 
     def failed_count(self):
         try:
@@ -576,6 +578,10 @@ class App:
     def stats(self):
         run_and_wait("stats", [], self.explicit)
 
+    # ---- folder layout
+    def layout(self):
+        run_and_wait("layout", [], self.explicit)  # report only; --clean / --merge-albums are commands (they preview first)
+
     # ---- folders
     FOLDER_SECTIONS = (("album_art", "Album art folders"), ("artist_art", "Artist picture folders"),
                        ("lyrics", "Lyrics folders"), ("duplicates", "Duplicate-check folders"))
@@ -664,6 +670,7 @@ class App:
         ("album_art.force", "Always replace existing art", "usually off"),
         ("album_art.jpeg_quality", "Cover image quality", "1-100"),
         ("artist_art.output_dir", "Artist pictures folder", "where <Artist>.jpg files go (relative to the music folder)"),
+        ("artist_art.placement", "Where artist pictures go", "shared (one folder) · artist_folder (artist.jpg in each artist's folder)"),
         ("artist_art.search_results", "Artists to show when asking", "how many Deezer artists to choose from"),
         ("artist_art.force", "Always replace artist pictures", "usually off"),
         ("lyrics.only_foreign", "Skip English songs", "lyrics: only songs that aren't in English are translated and saved"),

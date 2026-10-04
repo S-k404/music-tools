@@ -45,6 +45,12 @@ folders = ["."]
 # Where artist pictures are saved, one <Artist>.jpg each (absolute, or relative to music_dir).
 output_dir = "Artist Art"
 
+# "shared" keeps every picture in output_dir as <Artist>.jpg. "artist_folder" puts each one in the artist's own
+# folder at the top of the music folder as artist.jpg (what Plex, Jellyfin and Navidrome look for). An artist with
+# no such folder, or two folders that spell the name alike, still goes to output_dir. Pictures already in
+# either place count as done.
+placement = "shared"
+
 # Number of artists to show when asking which one is right.
 search_results = 5
 
@@ -119,3 +125,8 @@ folders = ["."]
 # Songs that are deliberately different versions (sped up, slowed, a remix) usually differ by much more
 # than this and are correctly never flagged.
 tolerance_seconds = 3.0
+
+[layout]
+# Top-level folders `mt layout` should leave out (names inside music_dir). It already skips your
+# artist-picture folder (artist_art.output_dir) and lyrics.backup_dir, and anything starting with "." or "$".
+ignore = []

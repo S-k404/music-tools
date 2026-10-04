@@ -28,7 +28,7 @@ require("mutagen")
 
 from fix_album_art import AUDIO_EXTS, UNSUPPORTED_EXTS, has_art
 from find_artist_art import collect as collect_artists
-from find_artist_art import has_picture
+from find_artist_art import artist_homes, has_picture
 from find_lyrics import has_lyrics, load_checked
 from fix_misidentified_tags import SUPPORTED_EXTENSIONS, process_audio_file
 
@@ -102,7 +102,8 @@ def artist_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None
         return
     jobs = collect_artists(files, workers, quiet)
     out_dir = resolve(cfg["artist_art"]["output_dir"], cfg["music_dir"])
-    have = sum(has_picture(out_dir, j.name) for j in jobs)
+    homes = artist_homes(cfg["music_dir"]) if cfg["artist_art"]["placement"] == "artist_folder" else None
+    have = sum(has_picture(out_dir, j.name, homes) for j in jobs)
     fact("Artist pics", f"{have}/{len(jobs)} artists have a picture")
 
 
@@ -140,7 +141,20 @@ def tag_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None:
                       + dim("(whole library — fix_misidentified_tags has no folders setting)"))
 
 
-SECTIONS = (art_stats, artist_stats, lyrics_stats, tag_stats)
+def layout_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None:
+    import library_layout   # folder names only, so it has no packages of its own to wait for
+    try:
+        s = library_layout.scan(cfg["music_dir"], library_layout.skip_folders(cfg))
+    except OSError as e:
+        log(f"  {red('✗')} Layout: can't read {cfg['music_dir']} ({e.strerror or e})")
+        return
+    found = [(len(s.albums), "duplicate album folders"), (len(s.junk), "junk files"), (len(s.backups), ".lrc.bak files"),
+             (len(s.empty), "empty folders")]
+    text = "  ·  ".join(f"{n} {w}" for n, w in found if n)
+    fact("Layout", text + "  " + dim("(mt layout has the details)") if text else "no duplicate folders or junk")
+
+
+SECTIONS = (art_stats, artist_stats, lyrics_stats, tag_stats, layout_stats)
 
 
 def main():

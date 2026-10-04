@@ -100,6 +100,7 @@ class FetchUrlTests(unittest.TestCase):
     def test_an_http_error_is_raised_like_urlopen_does(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             common.fetch_url(f"{self.base}/missing")
+        ctx.exception.close()
         self.assertEqual(ctx.exception.code, 404)
         self.assertEqual(common.fetch_url(f"{self.base}/ok"), b"hello /ok")  # connection still usable
 

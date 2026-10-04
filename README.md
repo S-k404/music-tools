@@ -16,6 +16,7 @@ reachable from its interactive menu.
 | `fix_misidentified_tags.py` | Fixes songs that MusicBrainz Picard tagged as the wrong album track, rebuilding tags from the filename |
 | `find_duplicates.py` | Reports songs that are probably the same recording saved more than once (report only — nothing is deleted) |
 | `library_stats.py` | A one-screen, read-only health check: cover art, artist pictures, lyrics and tag coverage |
+| `library_layout.py` | Checks the folder layout: duplicate album folders, junk files, odd names. Report only; `--clean` / `--merge-albums` preview fixes and `--apply` does them (with an undo file) |
 
 All of them show progress bars, work on several files at once, and read their
 settings from one `config.toml`. Day to day you only need one command, `mt`
@@ -79,10 +80,11 @@ setting, and read the logs of previous runs.
     6 Fix wrong tags            rebuild tags from filenames
     7 Find duplicate songs      report only — nothing is ever deleted
     8 Library stats             one-screen health check, read-only
-    9 Folders                   change which folders are used
-   10 Settings                  matching, cropping, tag options…
-   11 Logs                      see what previous runs did
-   12 Help                      all commands
+    9 Check folder layout       duplicate folders, junk files — report only
+   10 Folders                   change which folders are used
+   11 Settings                  matching, cropping, tag options…
+   12 Logs                      see what previous runs did
+   13 Help                      all commands
       Quit
 ```
 
@@ -261,8 +263,11 @@ mt set artist_art.output_dir "Artist Art"   # where the pictures go
 ```
 
 Media servers like Plex, Jellyfin and Navidrome look for `artist.jpg` inside each
-artist's own folder instead; this tool uses one shared folder because YouTube
-downloads are usually kept in a flat folder.
+artist's own folder instead. By default this tool uses one shared folder (YouTube
+downloads are usually kept flat). If your library is `Artist/Album/Track`, switch with
+`mt set artist_art.placement artist_folder` (or `mt artists --placement artist_folder`
+for one run): each picture is saved as `Artist/artist.jpg`, an artist with no folder of
+its own still goes to the shared folder, and pictures already in either place count as done.
 
 ## find_lyrics.py  (`mt lyrics`)
 
@@ -392,6 +397,39 @@ folders; the tag check always covers the whole library.
 ```bash
 python3 library_stats.py
 ```
+
+## library_layout.py  (`mt layout`)
+
+Checks how your library is laid out on disk (`Artist/Album/Track`) using folder names only; no
+tags are read. Run on its own it only **reports**:
+
+- **duplicate album folders** under one artist: `Ado's Best` / `Ado’s Best`, `Ado - Show` / `Show`,
+  `SUGAR RUSH` / `Sugar Rush - EP`, `TIMELY!!` / `Timely` (case, punctuation, quote and dash styles, a
+  leading `Artist - ` and a trailing `- EP` / `- Single` are ignored when comparing);
+- **artist folders spelled two ways** (`A$ap Rocky` / `A$AP Rocky`) and **collaboration-style** folders
+  (`A, B`, `A & B`): listed for you to decide, never merged automatically;
+- **junk**: macOS `._` files, `.DS_Store`, `.lrc.bak` backups lying next to songs, empty folders, odd
+  names (`null`, `Unknown`, emoji-only), files loose in the library root.
+
+Your artist-picture folder, `lyrics.backup_dir` and anything in `layout.ignore` are left out.
+
+```bash
+mt layout                          # report only
+mt layout --report layout.txt      # the full lists as a text file
+mt layout --clean                  # preview: delete junk, move .lrc.bak files, remove empty folders
+mt layout --merge-albums           # preview: merge each duplicate album folder into the one with most songs
+mt layout --clean --merge-albums --apply     # do it (asks first; --yes skips the question)
+mt layout --undo --apply           # put back what the latest run moved
+```
+
+**Safe by design.** Without `--apply` nothing changes. Files are never overwritten: when a merge finds a
+byte-identical file already in the kept folder it drops the duplicate, and when it finds a different file
+of the same name it leaves both where they are. A song moves together with its `.lrc`, `.html`, `.txt`,
+covers and backups, and the lyrics tool's `lyrics_checked.json` memory is updated for moved songs. Every
+run that changes something saves `logs/layout_undo_<time>.json`; `--undo --apply` restores the moved and
+de-duplicated files (junk files it deleted can't come back, they were junk). `--clean` moves `.lrc.bak`
+files into `lyrics.backup_dir` (mirroring the library, the layout `mt lyrics --restore-lrc` already
+reads), so set that first with `mt set lyrics.backup_dir "/some/folder/outside/the/library"`.
 
 ## Tests
 

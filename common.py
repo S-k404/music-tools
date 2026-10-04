@@ -60,6 +60,7 @@ DEFAULTS = {
     "artist_art": {
         "folders": ["."],
         "output_dir": "Artist Art",
+        "placement": "shared",   # "shared": every picture in output_dir; "artist_folder": <Artist>/artist.jpg where that folder exists
         "search_results": 5,
         "force": False,
     },
@@ -85,6 +86,9 @@ DEFAULTS = {
         "folders": ["."],
         "tolerance_seconds": 3.0,
     },
+    "layout": {
+        "ignore": [],   # top-level folders `mt layout` leaves out (it already skips the artist-picture and lyrics-backup folders)
+    },
 }
 
 
@@ -98,6 +102,7 @@ def _merge(base: dict, override: dict) -> dict:
 CHOICES = {
     ("tags", "title_mode"): ("auto", "stem", "parsed"),
     ("tags", "album_mode"): ("folder", "clear", "title", "keep"),
+    ("artist_art", "placement"): ("shared", "artist_folder"),
 }
 
 
@@ -158,6 +163,8 @@ def _validate(cfg: dict, source: str) -> None:
             problems.append("duplicates.folders should be a list of folder paths")
         if not 0 <= dups["tolerance_seconds"] <= 30:
             problems.append("duplicates.tolerance_seconds must be between 0 and 30")
+        if not all(isinstance(f, str) for f in cfg["layout"]["ignore"]):
+            problems.append("layout.ignore should be a list of folder names")
         if not 1 <= cfg["workers"] <= 64:
             problems.append("workers must be between 1 and 64")
     if problems:
