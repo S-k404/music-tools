@@ -21,7 +21,7 @@ Usage:
   python3 find_artist_art.py                       # artist folders from config.toml
   python3 find_artist_art.py --list-missing        # list artists without a picture (no downloading)
   python3 find_artist_art.py --dry-run             # look artists up, save nothing
-  python3 find_artist_art.py /some/folder --auto   # never ask, skip unsure artists
+  python3 find_artist_art.py /some/folder --ask    # pick from the closest artists when there's no exact match
   python3 find_artist_art.py --artist "Radiohead" --artist "Fred again.."
   python3 find_artist_art.py --artist "Some DJ" --image https://example.com/photo.jpg
 """
@@ -780,7 +780,8 @@ def main():
     ap.add_argument("--list-missing", action="store_true", help="only list artists without a picture; no downloading")
     ap.add_argument("--dry-run", action="store_true", help="look artists up but don't save anything")
     ap.add_argument("--force", action="store_true", default=None, help="replace pictures that already exist")
-    ap.add_argument("--auto", action="store_true", help="never ask; skip artists without an exact match")
+    ap.add_argument("--auto", action="store_true", help="never ask (the default); artists without an exact match are listed as not found")
+    ap.add_argument("--ask", action="store_true", help="let me pick from the closest artists when there is no exact match (they are often the wrong artist)")
     ap.add_argument("--workers", type=int, choices=range(1, 65), metavar="1-64", help="parallel lookups")
     ap.add_argument("--placement", choices=("shared", "artist_folder"),
                     help="shared: all pictures in one folder; artist_folder: artist.jpg inside each artist's own folder")
@@ -857,9 +858,9 @@ def main():
     # 4. ask about artists without an exact match (after the bars, so prompts aren't interleaved)
     unsure = [j for j in todo if j.status == "unsure"]
     if unsure:
-        if args.auto or not sys.stdin.isatty():
+        if not args.ask or args.auto or not sys.stdin.isatty():
             for j in unsure:
-                j.status, j.reason = "failed", "no exact match (use without --auto to choose)"
+                j.status, j.reason = "failed", "no exact match (--ask lets you pick from the closest artists)"
         elif not STOP.is_set():
             print(f"\n  {pink('♪')} {plural(len(unsure), 'artist')} {'needs' if len(unsure) == 1 else 'need'} you to pick a match {dim('(Ctrl-C skips the rest)')}")
             try:
