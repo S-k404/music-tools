@@ -1,6 +1,10 @@
+import importlib.util
 import sys
 import unittest
 from pathlib import Path
+
+if importlib.util.find_spec("mutagen") is None or importlib.util.find_spec("PIL") is None:
+    raise unittest.SkipTest("mutagen and Pillow are needed to run these tests (./setup.sh)")
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))

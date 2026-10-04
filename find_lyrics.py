@@ -49,12 +49,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from common import (HERE, STOP, bold, dim, find_audio, fit, folder_problem, green, install_stop_handler, load_config,
-                    log, normal_ctrl_c, red, require, resolve, section, start_log, text_width, yellow)
+from common import (HERE, STOP, atomic_write, bold, dim, find_audio, fit, folder_problem, green, install_stop_handler, load_config,
+                    log, normal_ctrl_c, plural, red, require, resolve, section, start_log, text_width, yellow)
 
 require("mutagen")
 
-from mutagen import File as MutagenFile
 
 from fix_album_art import AUDIO_EXTS, clean_text, read_tags
 from fix_misidentified_tags import parse_filename
@@ -90,6 +89,7 @@ class Job:
     saved: dict = field(default_factory=dict)   # format -> "saved" | "exists" | "error: ..."
     status: str = "pending"    # pending | found | done | skipped | failed
     reason: str = ""
+    tagfile: object = field(default=None, repr=False, compare=False)  # the song's parsed tags while it's in flight
     certain: bool = False      # the answer is definite (lrclib was asked), so it can be remembered
     romanized: bool = False    # the lyrics are already in Latin letters (romaji); translated from that
     partial: bool = False      # saved without the English yet (translation services were down); finished next run
@@ -108,25 +108,18 @@ class Options:
 
 # ---------------------------------------------------------------- reading the library
 
-def duration_of(path: Path):
-    try:
-        f = MutagenFile(path)
-        return float(f.info.length) if f and getattr(f, "info", None) else None
-    except Exception:
-        return None
-
-
 def load_song_info(job: Job) -> None:
     """Fill in artist/title/length from the song's tags, falling back to the filename."""
     path = job.path
-    tags = read_tags(path)  # one mutagen read covers tags and duration; no need to open the file twice
+    tags = read_tags(path, keep_file=True)  # one mutagen read covers tags, duration and embedded lyrics
+    job.tagfile = tags["file"]
     artist, title = job.artist or tags["artist"].strip(), job.title or tags["title"].strip()
     if not (artist and title):
         parsed = parse_filename(clean_text(path.stem))
         if parsed["pattern"] == "artist_dash_title":
             artist, title = artist or parsed["artist"], title or parsed["title"]
     job.artist, job.title = artist, title or clean_text(path.stem)
-    job.duration = job.duration or tags["duration"] or duration_of(path)
+    job.duration = job.duration or tags["duration"]
 
 
 def existing_outputs(path: Path, formats: list) -> dict:
@@ -159,12 +152,9 @@ def load_checked() -> dict:
 
 
 def save_checked(checked: dict) -> None:
-    tmp = CHECKED_FILE.with_name(CHECKED_FILE.name + ".tmp")
     try:
-        tmp.write_text(json.dumps(checked, ensure_ascii=False, indent=0, sort_keys=True), encoding="utf-8")
-        os.replace(tmp, CHECKED_FILE)
+        atomic_write(CHECKED_FILE, json.dumps(checked, ensure_ascii=False, indent=0, sort_keys=True))
     except OSError as e:
-        tmp.unlink(missing_ok=True)
         log(f"! couldn't remember what was checked ({CHECKED_FILE.name}): {e.strerror or e}")
 
 
@@ -229,7 +219,7 @@ def find_original(job: Job, options: Options) -> Lyrics:
             return lyrics_from_file(options.lyrics_file, job.artist, job.title)
         except (LocalLyricsError, OSError) as e:
             raise LyricsError(str(e)) from e
-    local = local_lyrics(job.path, job.artist, job.title) if job.path.is_file() else None
+    local = local_lyrics(job.path, job.artist, job.title, job.tagfile) if job.path.is_file() else None
     if local and local.synced:
         return local
     online, missing = None, ""
@@ -257,7 +247,10 @@ def _process_job(job: Job, translator: Translator, translate: bool, options: Opt
         load_song_info(job)
     if options.on_start:
         options.on_start(f"{job.artist} - {job.title}" if job.artist else job.title or job.path.name)
-    lyrics = find_original(job, options)
+    try:
+        lyrics = find_original(job, options)
+    finally:
+        job.tagfile = None  # parsed tags can hold cover art; don't keep them for every song in the run
     job.lyrics = lyrics
     texts = [l.text for l in lyrics.lines if l.text]
     if not texts:
@@ -417,10 +410,6 @@ def save_job(job: Job, formats: list, force: bool, update_own: bool = True, laye
 
 
 # ---------------------------------------------------------------- reporting
-
-def plural(n: int, word: str) -> str:
-    return f"{n} {word}" if n == 1 else f"{n} {word}s"
-
 
 def report(todo: list, have: list, args, translator) -> int:
     dry_run = args.dry_run
@@ -694,8 +683,9 @@ def main():
     checked = {} if fresh_look else load_checked()
     for j in jobs:
         j.was_partial = (checked.get(str(j.path)) or {}).get("status") == "partial"
-    have = [] if opts["force"] else [j for j in jobs if has_lyrics(j.path, opts["formats"], checked)]
-    todo = [j for j in jobs if j not in have]
+    have, todo = [], []
+    for j in jobs:  # one pass; `j not in have` would compare whole dataclasses field by field, O(n^2)
+        (have if not opts["force"] and has_lyrics(j.path, opts["formats"], checked) else todo).append(j)
     if args.limit is not None:
         todo = todo[:max(0, args.limit)]
     fact("Lyrics", f"{len(jobs)}  {dim('·')}  {len(have)} already done  {dim('·')}  {bold(str(len(todo)))} to find")

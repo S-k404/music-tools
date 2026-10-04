@@ -45,6 +45,12 @@ folders = ["."]
 # Where artist pictures are saved, one <Artist>.jpg each (absolute, or relative to music_dir).
 output_dir = "Artist Art"
 
+# "shared" keeps every picture in output_dir as <Artist>.jpg. "artist_folder" puts each one in the artist's own
+# folder at the top of the music folder as artist.jpg (what Plex, Jellyfin and Navidrome look for). An artist with
+# no such folder, or two folders that spell the name alike, still goes to output_dir. Pictures already in
+# either place count as done.
+placement = "shared"
+
 # Number of artists to show when asking which one is right.
 search_results = 5
 
@@ -119,3 +125,27 @@ folders = ["."]
 # Songs that are deliberately different versions (sped up, slowed, a remix) usually differ by much more
 # than this and are correctly never flagged.
 tolerance_seconds = 3.0
+
+[layout]
+# Top-level folders `mt layout` should leave out (names inside music_dir). It already skips your
+# artist-picture folder (artist_art.output_dir) and lyrics.backup_dir, and anything starting with "." or "$".
+ignore = []
+
+[organize]
+# Folders to organize into Artist/Album/ structures (absolute, or relative to music_dir). "." = the whole music folder.
+folders = ["."]
+
+# Folder name when a song has no artist tag or parseable artist in the filename.
+fallback_artist = "Unknown Artist"
+
+# Folder name when a song has no album tag (e.g. YouTube singles). Set to "" or "none" to place directly under Artist/.
+fallback_album = "Singles"
+
+# Automatically find the real studio album for loose songs before falling back to Singles.
+auto_album = true
+
+# Automatically copy the artist's photo (from Artist Art/) to <Artist>/folder.jpg for Jellyfin and Plex.
+copy_artist_art = true
+
+# Remove empty source directories after all songs inside them have been moved.
+clean_empty_dirs = true
