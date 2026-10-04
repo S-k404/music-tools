@@ -95,5 +95,23 @@ class DroppedConnectionTests(unittest.TestCase):
         self.assertIn(ssl.SSLEOFError, common._STALE)
 
 
+    def _stub_youtube(self, videos, channels):
+        def entries(url):
+            return videos if "CAMSAhAB" in url else channels
+        real = artists._youtube_entries
+        artists._youtube_entries = entries
+        self.addCleanup(setattr, artists, "_youtube_entries", real)
+
+    def test_popular_video_channels_rank_by_views_and_keep_only_channels_with_a_picture(self):
+        video = lambda cid, ch, views: {"ie_key": "Youtube", "channel_id": cid, "channel": ch, "view_count": views}
+        chan = lambda cid, ch: {"ie_key": "YoutubeTab", "channel": ch, "channel_url": "https://youtube.com/channel/" + cid,
+                                "channel_follower_count": 7, "thumbnails": [{"url": "https://x/a=s88-c", "width": 88}]}
+        self._stub_youtube([video("A", "Small", 10), video("B", "Big", 900), video("B", "Big", 100), video("C", "NoPic", 5000)],
+                           [chan("A", "Small"), chan("B", "Big")])
+        got = artists.popular_video_channels("whoever")
+        self.assertEqual([c["name"] for c in got], ["Big", "Small"])
+        self.assertTrue(got[0]["picture_xl"].startswith("https://x/a=s800-"))
+
+
 if __name__ == "__main__":
     unittest.main()
