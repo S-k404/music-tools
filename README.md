@@ -258,7 +258,8 @@ thumbnail is a frame of the video and not a picture of them). YouTube limits how
 it answers searches, so if it starts refusing, it's dropped for the rest of the run
 and those artists are reported as not found — run the tool again later to retry them.
 Otherwise, after all lookups are done, you're shown the
-closest artists and can pick one, paste a Deezer artist link, an image link or an
+closest artists and can pick one, paste a Deezer artist link, a YouTube channel link
+(`youtube.com/@name` or `/channel/...`, needs `yt-dlp`), an image link or an
 image file, or skip. Artists that can't be found are listed at the end with a
 ready-to-paste fix command. Run it again any time: artists that already have a
 picture are skipped, so a second run only retries the ones that failed.
