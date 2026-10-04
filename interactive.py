@@ -372,7 +372,7 @@ class App:
                 ("Organize library", "sort songs into Artist/Album for Jellyfin"),
                 ("All-in-one run", "art + artist pictures + lyrics in one go"),
                 ("Library stats", "one-screen health check, read-only"),
-                ("Check folder layout", "duplicate folders, junk files — report only"),
+                ("Check and tidy folders", "duplicate albums, junk files — merge them all in one go"),
                 ("Folders", "change which folders are used"),
                 ("Settings", "matching, cropping, tag options…"),
                 ("Logs", "see what previous runs did"),
@@ -649,8 +649,27 @@ class App:
         run_and_wait("stats", [], self.explicit)
 
     # ---- folder layout
+    LAYOUT_ACTIONS = (
+        ("Show the report", "duplicate albums, junk, odd names — changes nothing", []),
+        ("Tidy everything", "delete junk + merge ALL duplicate albums; shows the list, asks, saves an undo file",
+         ["--clean", "--merge-albums", "--apply"]),
+        ("Merge all duplicate albums", "songs and lyrics move into the fuller folder; nothing is overwritten",
+         ["--merge-albums", "--apply"]),
+        ("Clean junk only", "._ files, .DS_Store, .lrc.bak files; empty folders", ["--clean", "--apply"]),
+        ("Undo the last tidy", "puts every moved file back", ["--undo", "--apply"]),
+    )
+
     def layout(self):
-        run_and_wait("layout", [], self.explicit)  # report only; --clean / --merge-albums are commands (they preview first)
+        """Report, or tidy: the tool itself prints what it would do and asks before changing anything.
+        Artist folders spelled two ways and collaboration folders are only ever reported."""
+        cursor = 0
+        while True:
+            rows = [(label, hint) for label, hint, _ in self.LAYOUT_ACTIONS]
+            choice = menu("Check and tidy folders", rows, self.status_lines(self.cfg), cursor)
+            if choice is None:
+                return
+            cursor = choice
+            run_and_wait("layout", list(self.LAYOUT_ACTIONS[choice][2]), self.explicit)
 
     # ---- folders
     FOLDER_SECTIONS = (("album_art", "Album art folders"), ("artist_art", "Artist picture folders"),
