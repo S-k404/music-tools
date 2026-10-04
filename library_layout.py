@@ -249,12 +249,15 @@ def print_report(s: Scan, report_file: str = None) -> None:
         section(title)
         for line in lines:
             print("   " + line.replace("\n", "\n   "))
-    problems = [(len(s.albums), "duplicate album folder"), (len(s.artists), "artist folder spelled two ways"),
-                (len(s.junk), "junk file"), (len(s.backups), ".lrc.bak"), (len(s.empty), "empty folder"),
-                (len(s.odd), "odd folder name"), (len(s.loose), "loose root file"), (len(s.collabs), "collab-style folder")]
+    problems = [(len(s.albums), "duplicate album folder", "duplicate album folders"),
+                (len(s.artists), "artist folder spelled two ways", "artist folders spelled two ways"),
+                (len(s.junk), "junk file", "junk files"), (len(s.backups), ".lrc.bak file", ".lrc.bak files"),
+                (len(s.empty), "empty folder", "empty folders"), (len(s.odd), "odd folder name", "odd folder names"),
+                (len(s.loose), "loose root file", "loose root files"),
+                (len(s.collabs), "collab-style folder", "collab-style folders")]
     print("\n  " + dim("─" * 46))
-    summary = "   ".join(plural(n, w) for n, w in problems if n) or "nothing to tidy"
-    print("  " + (yellow if any(n for n, _ in problems) else green)(f"{len(s.artist_dirs)} artist folders, "
+    summary = "   ".join(f"{n} {one if n == 1 else many}" for n, one, many in problems if n) or "nothing to tidy"
+    print("  " + (yellow if any(p[0] for p in problems) else green)(f"{len(s.artist_dirs)} artist folders, "
                                                                      f"{s.audio_total} songs  ·  {summary}"))
     print(dim("  Report only: nothing was changed. --clean and --merge-albums preview fixes (--apply does them).\n"))
     if report_file:

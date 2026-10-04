@@ -23,6 +23,11 @@ class HomesTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.dir)
 
     def test_artist_folders_are_found_by_name_and_ambiguous_ones_left_out(self):
+        (self.dir / "x").mkdir()
+        ignores_case = (self.dir / "X").exists()
+        (self.dir / "x").rmdir()
+        if ignores_case:
+            self.skipTest("this volume ignores case, so two spellings of one name can't both exist")
         for name in ("Radiohead", "A$ap Rocky", "A$AP Rocky", ".Trashes", "$RECYCLE.BIN", "Fred again.."):
             (self.dir / name).mkdir()
         (self.dir / "stray.txt").write_text("x")
