@@ -56,6 +56,9 @@ from fix_misidentified_tags import parse_filename
 # Characters not allowed in folder or file names on macOS, Linux, and Windows
 ILLEGAL_CHARS_RE = re.compile(r'[\x00-\x1f\x7f/\\:\*\?"<>\|]')
 WHITESPACE_RE = re.compile(r'\s+')
+# Tags that say "nothing here" in words: treated as missing, never used as folder names
+PLACEHOLDER_NAMES = {"unknown", "unknown album", "unknown artist", "null", "none", "n/a", "na", "nan", "<unknown>",
+                     "untitled"}
 SIDECAR_EXTS = {".lrc", ".bak", ".html", ".txt", ".jpg", ".jpeg", ".png", ".webp", ".nfo"}
 COMMON_IMAGES = {"folder.jpg", "cover.jpg", "artist.jpg", "album.jpg", "thumb.jpg"}
 ALBUM_CACHE_FILE = HERE / "album_cache.json"
@@ -238,6 +241,10 @@ def sanitize_name(name: str, fallback: str = "Unknown") -> str:
     return text or fallback
 
 
+def is_placeholder(text: str) -> bool:
+    return text.strip().casefold() in PLACEHOLDER_NAMES
+
+
 def read_track_meta(path: Path) -> dict:
     """Extract artist, album, title, and track number from mutagen tags or filename."""
     meta = {
@@ -269,6 +276,10 @@ def read_track_meta(path: Path) -> dict:
                     meta["track"] = m.group(1).zfill(2)
     except Exception:
         pass
+
+    for key in ("artist", "album"):   # a tag that literally says "null" is a missing tag
+        if is_placeholder(meta[key]):
+            meta[key] = ""
 
     # Fallback parsing from filename if artist or title missing
     if not (meta["artist"] and meta["title"]):
@@ -383,7 +394,7 @@ def plan_move(
     was_auto_album = False
 
     # Filter out single-track placeholder album names
-    if not raw_album or raw_album.lower() in ("unknown", "unknown album", "youtube", raw_artist.lower(), meta["title"].lower()):
+    if not raw_album or raw_album.lower() in ("youtube", raw_artist.lower(), meta["title"].lower()) or is_placeholder(raw_album):
         if resolved_album:
             raw_album = resolved_album
             was_auto_album = True
@@ -624,7 +635,7 @@ def main(argv: list = None) -> int:
         meta = read_track_meta(path)
         raw_album = meta["album"]
         raw_artist = meta["artist"] or fallback_artist
-        if not raw_album or raw_album.lower() in ("unknown", "unknown album", "youtube", raw_artist.lower(), meta["title"].lower()):
+        if not raw_album or raw_album.lower() in ("youtube", raw_artist.lower(), meta["title"].lower()) or is_placeholder(raw_album):
             if raw_artist and meta["title"] and raw_artist != fallback_artist:
                 tracks_needing_album.append((raw_artist, meta["title"]))
         parsed_files.append((path, meta))

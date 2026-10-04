@@ -1,5 +1,11 @@
 # Changelog
 
+## Fixed: `mt organize` and placeholder tags
+
+- Tags that literally say `null`, `none`, `n/a`, `Unknown`, `Unknown Artist` or `Unknown Album` are now treated as missing, so
+  songs are filed by the filename's `Artist - Title` and the looked-up or fallback album instead of getting `null` /
+  `Unknown` folders.
+
 ## Fixed: genre words as artists, and English songs reported as lyrics failures
 
 - `mt artists` no longer looks up genre words from a garbled artist tag (`KPOP, House, ZARA` found an artist called "House").

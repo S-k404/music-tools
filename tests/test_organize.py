@@ -68,6 +68,18 @@ class SidecarAndPlanTests(unittest.TestCase):
         self.assertEqual(plan.dest_audio, expected_dest)
         self.assertFalse(plan.is_noop)
 
+    def test_tags_that_say_null_or_unknown_count_as_missing(self):
+        import unittest.mock as mock
+        song = self.source_dir / "Real Artist - Real Title.mp3"
+        song.write_bytes(b"")
+        for album in ("null", "Unknown", "Unknown Album", "N/A"):
+            tags = {"artist": ["null"], "album": [album], "title": ["Real Title"]}
+            with mock.patch.object(org, "MutagenFile", return_value=mock.Mock(tags=tags)):
+                meta = org.read_track_meta(song)
+                plan = org.plan_move(song, self.music_dir, fallback_album="Singles")
+            self.assertEqual((meta["artist"], meta["album"]), ("Real Artist", ""), album)
+            self.assertEqual((plan.artist, plan.album), ("Real Artist", "Singles"), album)
+
     def test_plan_move_flat_when_fallback_album_empty(self):
         song = self.source_dir / "Artist - Title.mp3"
         song.write_bytes(b"")
