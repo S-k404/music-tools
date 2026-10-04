@@ -80,6 +80,8 @@ DEEZER_ARTIST_RE = re.compile(r"deezer\.com/(?:[a-z]{2}(?:-[a-z]{2})?/)?artist/(
 NO_PICTURE_MARKERS = ("/artist//", "d41d8cd98f00b204e9800998ecf8427e")
 # A YouTube search URL restricted to channels ("&sp=..." is the "Channel" filter)
 YOUTUBE_CHANNEL_SEARCH = "https://www.youtube.com/results?search_query={}&sp=EgIQAg%253D%253D"
+# The same search restricted to videos, sorted by view count
+YOUTUBE_VIDEO_SEARCH = "https://www.youtube.com/results?search_query={}&sp=CAMSAhAB"
 # One page of results is plenty. Without a limit yt-dlp pages through every result
 # YouTube has, which takes tens of seconds per artist and gets us rate-limited (HTTP 403).
 YOUTUBE_RESULTS = 10
@@ -114,6 +116,7 @@ class Job:
     candidates: list = field(default_factory=list)   # Deezer results to choose from
     status: str = "pending"  # pending | found | ready | unsure | failed | done
     reason: str = ""
+    by_views: bool = False   # the candidates are channels of this name's most-watched videos
 
 
 # ---------------------------------------------------------------- names
@@ -364,16 +367,10 @@ def big_avatar(thumbnails: list) -> str:
     return YOUTUBE_AVATAR_SIZE_RE.sub("=s800-", url)
 
 
-def youtube_channels(name: str) -> list:
-    """
-    Channels on YouTube that might be `name`, shaped like Deezer's artist dicts
-    (name/nb_fan/link/picture_xl) so the rest of the pipeline can treat a
-    YouTube channel exactly like a Deezer artist. Used as a fallback: Deezer
-    doesn't have every artist, especially smaller or YouTube-only ones.
-    """
+def _youtube_entries(url: str) -> list:
+    """The first page of results of a YouTube search URL ([] when yt-dlp is missing, refused or gave up)."""
     if not shutil.which("yt-dlp") or YOUTUBE_GAVE_UP.given_up() or STOP.is_set():
         return []
-    url = YOUTUBE_CHANNEL_SEARCH.format(urllib.parse.quote_plus(name))
     YOUTUBE_LIMIT.wait()
     try:
         r = subprocess.run(["yt-dlp", "--no-warnings", "--flat-playlist",
@@ -390,10 +387,20 @@ def youtube_channels(name: str) -> list:
         entries = json.loads(r.stdout).get("entries") or []
     except (json.JSONDecodeError, AttributeError):
         return []
+    return [e for e in entries if isinstance(e, dict)]
+
+
+def youtube_channels(name: str) -> list:
+    """
+    Channels on YouTube that might be `name`, shaped like Deezer's artist dicts
+    (name/nb_fan/link/picture_xl) so the rest of the pipeline can treat a
+    YouTube channel exactly like a Deezer artist. Used as a fallback: Deezer
+    doesn't have every artist, especially smaller or YouTube-only ones.
+    """
     out = []
-    for e in entries:
+    for e in _youtube_entries(YOUTUBE_CHANNEL_SEARCH.format(urllib.parse.quote_plus(name))):
         # Only channels: a video's thumbnail is a frame of the video, not a picture of the artist
-        if not isinstance(e, dict) or e.get("ie_key") != "YoutubeTab" or not e.get("channel"):
+        if e.get("ie_key") != "YoutubeTab" or not e.get("channel"):
             continue
         picture = big_avatar(e.get("thumbnails") or [])
         if not picture:
@@ -402,6 +409,28 @@ def youtube_channels(name: str) -> list:
                     "nb_fan": int(e.get("channel_follower_count") or 0),
                     "link": e.get("channel_url") or e.get("url") or "",
                     "picture_xl": picture})
+    return out
+
+
+def popular_video_channels(name: str, limit: int = 3) -> list:
+    """
+    Channels that uploaded the most-watched videos for `name`, most-viewed first, as
+    channel dicts with a picture. For artists whose own channel is named differently
+    (a romanised name, a label, a "- Topic" channel): the videos still say who they are.
+    """
+    views, info = {}, {}
+    for e in _youtube_entries(YOUTUBE_VIDEO_SEARCH.format(urllib.parse.quote_plus(name))):
+        cid, channel = e.get("channel_id"), e.get("channel")
+        if e.get("ie_key") != "Youtube" or not cid or not channel:
+            continue
+        views[cid] = views.get(cid, 0) + int(e.get("view_count") or 0)
+        info[cid] = channel
+    out = []
+    for cid in sorted(views, key=views.get, reverse=True)[:limit]:
+        # A video entry has no channel picture, so look the channel up by name and keep the one with this id
+        mine = [c for c in youtube_channels(info[cid]) if cid in c["link"]]
+        if mine:
+            out.append(mine[0])
     return out
 
 
@@ -512,18 +541,26 @@ def _search_job(job: Job, opts: dict) -> Job:
 
     if job.picks:
         job.status = "found"
-    elif reason:
-        job.status, job.reason = "failed", reason
-    else:
+        return job
+    if not reason:
         close = sorted((a for a in found if match_score(job.name, a.get("name", "")) >= 0.5),
                        key=lambda a: (-match_score(job.name, a["name"]), -(a.get("nb_fan") or 0)))
         job.candidates = [a for a in close if picture_of(a)][: opts["search_results"]]
-        if job.candidates:
-            job.status = "unsure"
-        else:
-            job.status, job.reason = "failed", ("no artist with that name on Deezer (YouTube is rate-limiting us)"
-                                                if YOUTUBE_GAVE_UP.given_up() else
-                                                "no artist with that name on Deezer or YouTube")
+    if not job.candidates:
+        # last resort: whoever uploaded the most-watched videos for this name
+        for query in query_variants(job.name):
+            job.candidates = popular_video_channels(query)[: opts["search_results"]]
+            if job.candidates:
+                job.by_views = True
+                break
+    if job.candidates:
+        job.status = "unsure"
+    elif reason:
+        job.status, job.reason = "failed", reason
+    else:
+        job.status, job.reason = "failed", ("no artist with that name on Deezer (YouTube is rate-limiting us)"
+                                            if YOUTUBE_GAVE_UP.given_up() else
+                                            "no artist with that name on Deezer or YouTube")
     return job
 
 
@@ -601,7 +638,8 @@ def find_pictures(jobs: list, opts: dict, workers: int, quiet: bool) -> None:
 def review(job: Job) -> None:
     """Ask the user to choose for an artist without an exact match."""
     print(f"\n  {yellow('?')} {bold(job.name)}  {dim('· ' + plural(job.songs, 'song'))}")
-    print(dim("    no artist on Deezer has exactly that name. Closest:"))
+    print(dim("    channels of the most-watched YouTube videos for this name:" if job.by_views
+              else "    no artist on Deezer has exactly that name. Closest:"))
     width = max(text_width(a["name"]) for a in job.candidates)
     for i, a in enumerate(job.candidates, 1):
         print(f'      {cyan(str(i))}  {fit(a["name"], min(width, 32))}  '
