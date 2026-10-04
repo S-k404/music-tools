@@ -12,6 +12,7 @@ if importlib.util.find_spec("mutagen") is None or importlib.util.find_spec("PIL"
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+import interactive  # noqa: E402
 import run_all  # noqa: E402
 
 CFG = {"music_dir": "/music", "lyrics": {"backup_dir": ""}}
@@ -63,6 +64,30 @@ class AutoRunTests(unittest.TestCase):
     def test_tags_follow_the_tidy_step_and_organize_comes_last(self):
         _, calls = self.run_auto(["--yes", "--tags", "--organize"])
         self.assertEqual([t for t, _ in calls], ["layout", "tags", "art", "artists", "lyrics", "organize"])
+
+
+class LayoutMenuTests(unittest.TestCase):
+    def pick(self, *choices):
+        """Drive the submenu with these row numbers, then back; returns the layout runs."""
+        runs = []
+        answers = iter([*choices, None])
+        with mock.patch.object(interactive, "menu", side_effect=lambda *a, **k: next(answers)), \
+                mock.patch.object(interactive, "run_and_wait", side_effect=lambda n, a, c: runs.append((n, a))):
+            interactive.App.layout(mock.Mock(LAYOUT_ACTIONS=interactive.App.LAYOUT_ACTIONS, explicit=None,
+                                             cfg={}, status_lines=lambda cfg: []))
+        return runs
+
+    def test_each_row_runs_the_matching_layout_command(self):
+        self.assertEqual(self.pick(0, 1, 2, 3, 4), [
+            ("layout", []),
+            ("layout", ["--clean", "--merge-albums", "--apply"]),
+            ("layout", ["--merge-albums", "--apply"]),
+            ("layout", ["--clean", "--apply"]),
+            ("layout", ["--undo", "--apply"]),
+        ])
+
+    def test_going_back_runs_nothing(self):
+        self.assertEqual(self.pick(), [])
 
 
 if __name__ == "__main__":

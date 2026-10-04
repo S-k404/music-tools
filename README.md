@@ -82,7 +82,7 @@ setting, and read the logs of previous runs.
     6 Fix wrong tags            rebuild tags from filenames
     7 Find duplicate songs      report only — nothing is ever deleted
     8 Library stats             one-screen health check, read-only
-    9 Check folder layout       duplicate folders, junk files — report only
+    9 Check and tidy folders     duplicate albums, junk files — merge them all in one go
    10 Folders                   change which folders are used
    11 Settings                  matching, cropping, tag options…
    12 Logs                      see what previous runs did
