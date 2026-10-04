@@ -9,7 +9,7 @@ would keep (the best one: lossless beats lossy, then higher resolution or bitrat
   --apply           do it: asks first (--yes skips the question), keeps the best copy of each song, moves the
                     rest and the lyrics/covers that only belong to them to the Trash (a copy's lyrics are kept
                     for the best copy when it has none), then sorts the kept songs into Artist/Album/ folders,
-                    looking up the album of loose ones (--no-fix-albums skips that)
+                    looking up the album of loose ones (--no-fix-albums skips that, --no-auto-album skips the lookup)
 
 Songs are grouped by artist and a cleaned-up title (YouTube upload noise and
 deliberate variant words like "sped up"/"slowed"/"nightcore" stripped, so two
@@ -364,9 +364,9 @@ def remove_losers(plans: list, music_dir: str, clean_empty: bool) -> tuple:
     return kept, removed, failed, freed
 
 
-def fix_albums(kept: list, music_dir: str, config, quiet: bool) -> int:
+def fix_albums(kept: list, music_dir: str, config, quiet: bool, lookup: bool = True) -> int:
     """Run the organizer on the songs that were kept: it files each under Artist/Album/, looking up the album
-    of loose songs online. Songs outside the music folder stay where they are."""
+    of loose songs online (unless `lookup` is off). Songs outside the music folder stay where they are."""
     root = Path(music_dir).resolve()
     inside = [str(p) for p in kept if p.is_file() and Path(p).resolve().is_relative_to(root)]
     section("Fixing the albums of the songs that were kept")
@@ -375,7 +375,8 @@ def fix_albums(kept: list, music_dir: str, config, quiet: bool) -> int:
     if not inside:
         return 0
     from interactive import run_tool   # the same way `mt all` runs its steps
-    common = (["--config", str(config)] if config else []) + (["--no-progress"] if quiet else [])
+    common = (["--config", str(config)] if config else []) + (["--no-progress"] if quiet else []) \
+        + ([] if lookup else ["--no-auto-album"])
     code = 0
     for batch in in_batches(inside):
         code = max(code, run_tool("organize", [*common, *batch]) or 0)
@@ -460,6 +461,8 @@ def main():
     ap.add_argument("--yes", action="store_true", help="don't ask before --apply")
     ap.add_argument("--no-fix-albums", action="store_true",
                     help="after removing, don't sort the kept songs into Artist/Album/ folders")
+    ap.add_argument("--no-auto-album", action="store_true",
+                    help="when sorting the kept songs, don't search online for the album of loose ones")
     ap.add_argument("--no-progress", action="store_true", help="hide progress bars")
     args = ap.parse_args()
     if args.apply and not args.delete:
@@ -516,7 +519,7 @@ def main():
     print(f"\n  {green('✓') if removed else yellow('•')} {copies(removed)} moved to the Trash"
           f" ({human_size(freed)})" + (f", {failed} couldn't be moved" if failed else "") + dim("  (Put Back in the Trash restores one)"))
     if kept and not args.no_fix_albums and not STOP.is_set():
-        code = max(code, fix_albums(kept, cfg["music_dir"], args.config, quiet))
+        code = max(code, fix_albums(kept, cfg["music_dir"], args.config, quiet, not args.no_auto_album))
     print()
     return code
 

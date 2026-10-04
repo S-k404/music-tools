@@ -370,7 +370,7 @@ class App:
                 ("Fix wrong tags", "rebuild tags from filenames"),
                 ("Find duplicate songs", "keep the best copy of each, remove the rest to the Trash"),
                 ("Organize library", "sort songs into Artist/Album for Jellyfin"),
-                ("All-in-one run", "art + artist pictures + lyrics in one go"),
+                ("All-in-one run", "tidy, art, artist pictures, lyrics, organize; tags and duplicates optional"),
                 ("Library stats", "one-screen health check, read-only"),
                 ("Check and tidy folders", "duplicate albums, junk files — merge them all in one go"),
                 ("Folders", "change which folders are used"),
@@ -627,17 +627,18 @@ class App:
     def run_all(self):
         opts = [
             ["Tidy folders first", True, "delete junk, merge duplicate albums (only if there are some)"],
+            ["Fix misidentified tags from filenames", False, "rebuild tags from Artist - Title"],
+            ["Remove duplicate songs", False, "keep the best copy of each, the rest go to the Trash; lists them and asks first"],
             ["Add missing cover art", True, "YouTube thumbnails embedded into files"],
             ["Find artist pictures", True, "downloaded from Deezer & YouTube"],
             ["Find and translate lyrics", True, "synced/plain lyrics from lrclib.net"],
             ["Organize into Artist/Album folders", True, "sort songs & sidecars for Jellyfin"],
-            ["Fix misidentified tags from filenames", False, "rebuild tags from Artist - Title"],
             ["Preview only (dry run)", False, "preview all steps without changing files"],
         ]
         chosen = checklist("All-in-one run", opts, "Run all selected", self.status_lines(self.cfg))
         if chosen is None:
             return
-        do_tidy, do_art, do_artists, do_lyrics, do_organize, do_tags, dry_run = chosen
+        do_tidy, do_tags, do_dedupe, do_art, do_artists, do_lyrics, do_organize, dry_run = chosen
         args = []
         if not do_tidy:
             args.append("--no-layout")
@@ -653,6 +654,8 @@ class App:
             args.append("--organize")
         if do_tags:
             args.append("--tags")
+        if do_dedupe:
+            args.append("--dedupe")
         run_and_wait("all", args, self.explicit)
 
     # ---- library stats
