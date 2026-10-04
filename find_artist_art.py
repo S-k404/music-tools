@@ -139,10 +139,20 @@ def name_parts(name: str) -> list:
     return parts if len(parts) > 1 else []
 
 
+_BRACKETS_RE = re.compile(r"\s*[\(\[（【].*?[\)\]）】]")
+_ALIAS_RE = re.compile(r"[\(\[（【]\s*(?:CV\s*[:.：．]\s*)?(.*?)\s*[\)\]）】]", re.IGNORECASE)
+
+
+def alias_names(name: str) -> list:
+    """Names inside brackets: the voice actor of 'Character(CV:Actor)', or the alias in 'Name【Alias】'."""
+    return [a for a in (m.strip() for m in _ALIAS_RE.findall(TOPIC_RE.sub("", name))) if a]
+
+
 def query_variants(name: str) -> list:
-    """The name as tagged, then without (brackets) that only confuse the search."""
-    bare = re.sub(r"\s*[\(\[（].*?[\)\]）]", "", TOPIC_RE.sub("", name)).strip()
-    return [name] + ([bare] if bare and bare != name else [])
+    """The name as tagged, then without (brackets) that only confuse the search, then what was inside them."""
+    bare = _BRACKETS_RE.sub("", TOPIC_RE.sub("", name)).strip()
+    out = [name] + ([bare] if bare and bare != name else [])
+    return out + [a for a in alias_names(name) if a not in out]
 
 
 def safe_filename(name: str) -> str:
@@ -330,7 +340,8 @@ def make_pick(name: str, artist: dict) -> Pick:
 
 def exact_match(found: list, name: str):
     """(artist or None, reason). The most popular artist whose name is exactly `name`."""
-    same = [a for a in found if name_key(a.get("name", "")) == name_key(name)]
+    keys = {name_key(n) for n in [name] + alias_names(name)}
+    same = [a for a in found if name_key(a.get("name", "")) in keys]
     with_picture = [a for a in same if picture_of(a)]
     if with_picture:
         return max(with_picture, key=lambda a: a.get("nb_fan") or 0), ""
@@ -473,7 +484,14 @@ def _find(name: str) -> tuple:
     found = search_artists(name)
     artist, reason = exact_match(found, name)
     if not artist:
-        yt = youtube_channels(name)
+        yt, seen = [], set()
+        for query in query_variants(name):
+            for channel in youtube_channels(query):
+                if channel["link"] not in seen:
+                    seen.add(channel["link"])
+                    yt.append(channel)
+            if exact_match(yt, name)[0]:
+                break
         yt_artist, yt_reason = exact_match(yt, name)
         found, artist, reason = found + yt, yt_artist, reason or yt_reason
     return artist, reason, found

@@ -36,9 +36,18 @@ class CombinationNameTests(unittest.TestCase):
 
     def test_search_variants_drop_brackets_and_youtube_topic_suffix(self):
         self.assertEqual(artists.query_variants("Mr. Smiirk - Topic"), ["Mr. Smiirk - Topic", "Mr. Smiirk"])
-        self.assertEqual(artists.query_variants("千石撫子(CV:花澤香菜)"), ["千石撫子(CV:花澤香菜)", "千石撫子"])
-        self.assertEqual(artists.query_variants("桜島麻衣（CV:瀬戸麻沙美）"), ["桜島麻衣（CV:瀬戸麻沙美）", "桜島麻衣"])
+        self.assertEqual(artists.query_variants("千石撫子(CV:花澤香菜)"), ["千石撫子(CV:花澤香菜)", "千石撫子", "花澤香菜"])
+        self.assertEqual(artists.query_variants("桜島麻衣（CV:瀬戸麻沙美）"),
+                         ["桜島麻衣（CV:瀬戸麻沙美）", "桜島麻衣", "瀬戸麻沙美"])
+        self.assertEqual(artists.query_variants("ミア・テイラー (CV.内田 秀)")[-1], "内田 秀")
+        self.assertEqual(artists.query_variants("マヨネーズ.exe【Nekotaro】"),
+                         ["マヨネーズ.exe【Nekotaro】", "マヨネーズ.exe", "Nekotaro"])
         self.assertEqual(artists.query_variants("Radiohead"), ["Radiohead"])
+
+    def test_a_voice_actor_or_alias_counts_as_the_artist(self):
+        found = [{"name": "花澤香菜", "nb_fan": 5, "picture_xl": "https://x/p.jpg"}]
+        self.assertEqual(artists.exact_match(found, "千石撫子(CV:花澤香菜)")[0], found[0])
+        self.assertIsNone(artists.exact_match(found, "千石撫子")[0])
 
 
 class GenreWordTests(unittest.TestCase):
