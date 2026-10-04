@@ -151,3 +151,28 @@ class DroppedConnectionTests(unittest.TestCase):
         artists.fetch_url = lambda *a, **k: b"<html></html>"
         with self.assertRaises(ValueError):
             artists.channel_avatar("https://www.youtube.com/channel/UCx")
+
+    def test_batch_file_lines_are_artist_bar_link(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "todo.txt"
+            path.write_text("# comment\n\nA | https://x/a.jpg\n 'B & C' |  \"/tmp/b.png\" \nD |\nno bar here\n | https://x/e\n"
+                            "A | https://x/a2.jpg\n", encoding="utf-8")
+            entries, problems = artists.parse_batch_file(path)
+        self.assertEqual(entries, [("A", "https://x/a2.jpg"), ("B & C", "/tmp/b.png")])
+        self.assertEqual(len(problems), 2)
+        self.assertIn("line 6", problems[0])
+
+    def test_one_bad_link_in_a_batch_fails_only_its_own_artist(self):
+        real = artists.pick_from_text
+        def fake(name, text):
+            if text == "bad":
+                raise ValueError("nope")
+            return artists.Pick(name, picture_url=text)
+        artists.pick_from_text = fake
+        self.addCleanup(setattr, artists, "pick_from_text", real)
+        jobs = [artists.Job("A"), artists.Job("B")]
+        artists.apply_manual(jobs, {"A": "https://x/a.jpg", "B": "bad"}, 4)
+        self.assertEqual([j.status for j in jobs], ["ready", "failed"])
+        self.assertEqual(jobs[1].reason, "nope")
+        self.assertEqual(jobs[0].picks[0].picture_url, "https://x/a.jpg")
