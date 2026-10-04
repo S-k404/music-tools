@@ -258,7 +258,7 @@ class ArtistLookupTests(unittest.TestCase):
         artists.search_artists("Tricot (トリコ)")
         self.assertEqual(asked, ["Tricot (トリコ)"])
         artists.search_artists("Nobody (Here)")
-        self.assertEqual(asked[1:], ["Nobody (Here)", "Nobody"])
+        self.assertEqual(asked[1:], ["Nobody (Here)", "Nobody", "Here"])
 
     def test_broken_download_is_a_failure_not_a_crash(self):
         self.catalog["Radiohead"] = [self.artist("Radiohead")]
