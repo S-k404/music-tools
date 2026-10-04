@@ -18,6 +18,7 @@ Usage:
 import argparse
 import os
 import sys
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -26,11 +27,13 @@ from common import (STOP, dim, find_audio, fit, folder_problem, heading, install
 
 require("mutagen")
 
+import mutagen
+
 from fix_album_art import AUDIO_EXTS, UNSUPPORTED_EXTS, has_art
 from find_artist_art import collect as collect_artists
 from find_artist_art import artist_homes, has_picture
 from find_lyrics import has_lyrics, load_checked
-from fix_misidentified_tags import SUPPORTED_EXTENSIONS, process_audio_file
+from fix_misidentified_tags import SUPPORTED_EXTENSIONS, get_current_tags, is_severe_mismatch, process_audio_file
 
 
 def fact(label: str, value) -> None:
@@ -127,6 +130,26 @@ def lyrics_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None
     fact("Lyrics", f"{saved} saved  ·  {english} English (skipped)  ·  {notfound} not on lrclib  ·  {pending} pending")
 
 
+def read_tags(path: Path, opts: dict):
+    """
+    (severe mismatch?, missing a title or artist?) for one song, opening the file once.
+    None when it isn't a readable audio file. The full tag check only runs on the rare
+    severe candidates, same as `mt fix --only-severe`.
+    """
+    if STOP.is_set():
+        return None
+    try:
+        audio = mutagen.File(str(path))
+    except Exception:
+        return None
+    if audio is None:
+        return None
+    tags = get_current_tags(audio)
+    severe = (is_severe_mismatch(unicodedata.normalize("NFC", path.stem), tags["title"])
+              and process_audio_file(path, opts) is not None)
+    return severe, not (tags["title"] and tags["artist"])
+
+
 def tag_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None:
     problem = folder_problem(cfg["music_dir"])
     if problem:
@@ -135,9 +158,11 @@ def tag_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None:
     opts = {**cfg["tags"], "dry_run": True, "only_severe": True, "only_mismatched": False, "filter": None}
     files = library.files([library.root], SUPPORTED_EXTENSIONS)
     with ThreadPoolExecutor(workers) as pool:
-        results = list(progress(pool.map(lambda p: process_audio_file(p, opts), files), len(files), "Checking tags", quiet))
-    severe = sum(r is not None for r in results)
-    fact("Tag check", f"{severe} severe mismatch(es) out of {len(files)} files  "
+        results = [r for r in progress(pool.map(lambda p: read_tags(p, opts), files), len(files), "Checking tags", quiet)
+                   if r is not None]
+    severe = sum(r[0] for r in results)
+    untagged = sum(r[1] for r in results)
+    fact("Tag check", f"{severe} severe mismatch(es)  ·  {untagged} missing a title or artist  ·  out of {len(files)} files  "
                       + dim("(whole library — fix_misidentified_tags has no folders setting)"))
 
 
