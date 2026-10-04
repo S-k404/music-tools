@@ -1,5 +1,12 @@
 # Changelog
 
+## Added: simpler commands
+
+- Easier names: `mt auto`, `mt covers`, `mt pics`, `mt check`, `mt fix`, `mt dupes` (the old names still work), plus two new
+  verbs: `mt tidy` (merge duplicate folders and delete junk, preview with `--dry-run`) and `mt undo`.
+- Small flag slips are forgiven (`--dryrun`, `--dry_run`, `-n`, `-y`); a mistyped command suggests the closest one and
+  shows a short everyday cheat sheet. `mt help` starts with the same cheat sheet.
+
 ## Changed: `mt all` is now a smart auto mode
 
 - Runs in the cheapest order: tidy folders (junk, `.lrc.bak`, duplicate albums) when the library has some, then tags

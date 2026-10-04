@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """music-tools: one command for switching folders, changing settings and running the tools."""
 
+import difflib
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -21,11 +23,27 @@ PROG = os.environ.get("MUSIC_TOOLS_NAME") or Path(sys.argv[0]).name
 if PROG.endswith(".py"):
     PROG = "music-tools"
 
+EVERYDAY = f"""\
+EVERYDAY COMMANDS
+  {PROG}                             open the menu (arrow keys + Enter)
+  {PROG} auto                        do everything: tidy folders, then art, artist pictures and lyrics
+  {PROG} tidy                        merge duplicate folders and delete junk (shows the list, asks first)
+  {PROG} undo                        put back what the last tidy moved
+  {PROG} lyrics                      find and translate lyrics
+  {PROG} covers                      add missing album art
+  {PROG} artists                     find artist pictures
+  {PROG} check                       one-screen health check of the library
+  {PROG} help COMMAND                every option of one command (add --dry-run to any command to preview)
+"""
+
 HELP = f"""\
 music-tools — fix cover art, artist pictures and tags in your music library
 
 Usage: {PROG}                       open the interactive menu (arrow keys + Enter)
        {PROG} <command> [options]   run a command directly
+
+{EVERYDAY}
+Everything below is the full reference.
 
 FOLDERS & SETTINGS
   {PROG} where                       show the music folder, art folders and config file
@@ -158,6 +176,66 @@ SCRIPTS = {"art": "fix_album_art.py", "artists": "find_artist_art.py", "lyrics":
           "organize": "organize_music.py", "all": "run_all.py"}
 
 
+# Easier names for the same things (the original names keep working)
+ALIASES = {"auto": "all", "run": "all", "covers": "art", "cover": "art", "album-art": "art", "artist-art": "artists",
+           "pics": "artists", "photos": "artists", "fix": "tags", "fix-tags": "tags", "dupes": "duplicates",
+           "check": "stats", "health": "stats", "lyric": "lyrics"}
+VERBS = ("tidy", "undo")   # one-word versions of long `layout` commands
+OTHER_COMMANDS = ("menu", "help", "missing", "retry", "where", "dir", "folders", "settings", "set", "reset", "edit")
+SHORT_FLAGS = {"-n": "--dry-run", "-y": "--yes"}
+_squash = lambda text: re.sub(r"[-_]", "", text.lower())
+
+
+def known_options(script: str) -> set:
+    """The --options a tool accepts, read from its source (no import, so this stays instant)."""
+    try:
+        text = (HERE / script).read_text(encoding="utf-8")
+    except OSError:
+        return set()
+    return {o for line in text.splitlines() if "add_argument(" in line
+            for o in re.findall(r'["\'](-{1,2}[A-Za-z][\w-]*)["\']', line)} | {"-h", "--help"}
+
+
+def fix_flags(script: str, args: list) -> list:
+    """Forgive small slips: --dryrun / --dry_run / --Dry-Run become --dry-run, -n and -y become
+    --dry-run and --yes, and a clear near-miss (--no-progres) is corrected. Anything unclear is passed on."""
+    opts = known_options(script)
+    if not opts:
+        return list(args)
+    longs = sorted(o for o in opts if o.startswith("--"))
+    out = []
+    for i, arg in enumerate(args):
+        if arg == "--":
+            return out + list(args[i:])
+        name, eq, value = arg.partition("=")
+        fixed = None
+        if arg in SHORT_FLAGS and arg not in opts and SHORT_FLAGS[arg] in opts:
+            fixed = SHORT_FLAGS[arg]
+        elif name.startswith("--") and name not in opts and not any(o.startswith(name) for o in longs):
+            same = [o for o in longs if _squash(o) == _squash(name)]
+            near = difflib.get_close_matches(name.lower().replace("_", "-"), longs, n=2, cutoff=0.8)
+            fixed = same[0] if len(same) == 1 else near[0] if len(near) == 1 else None
+        if fixed:
+            print(f"  (using {fixed} for {name})", file=sys.stderr)
+            arg = fixed + eq + value
+        out.append(arg)
+    return out
+
+
+def verb_args(cmd: str, args: list) -> list:
+    """`tidy` and `undo` as `layout` options. --dry-run (or -n) previews instead of applying."""
+    dry = any(a in ("--dry-run", "-n") for a in args)
+    rest = [a for a in args if a not in ("--dry-run", "-n")]
+    base = ["--clean", "--merge-artists", "--merge-albums"] if cmd == "tidy" else ["--undo"]
+    return base + ([] if dry else ["--apply"]) + rest
+
+
+def suggest(cmd: str) -> str:
+    names = [*SCRIPTS, *ALIASES, *VERBS, *OTHER_COMMANDS]
+    close = difflib.get_close_matches(cmd, names, n=1, cutoff=0.6)
+    return f"Did you mean '{PROG} {close[0]}'?\n\n" if close else ""
+
+
 def run_script(name: str, args: list) -> int:
     return run_tool(name, args)  # the script handles Ctrl-C itself and stops safely
 
@@ -226,14 +304,20 @@ def main(argv: list) -> int:
             return 0
         return run_menu(config, HELP)
     if argv[0] in ("help", "-h", "--help"):
-        if len(argv) > 1 and argv[1] in SCRIPTS:
-            return run_script(argv[1], ["--help"])
+        topic = ALIASES.get(argv[1], argv[1]) if len(argv) > 1 else ""
+        if topic in SCRIPTS:
+            return run_script(topic, ["--help"])
+        if topic in VERBS:
+            return run_script("layout", ["--help"])
         print(HELP)
         return 0
 
     cmd, args = argv[0], argv[1:]
+    cmd = ALIASES.get(cmd, cmd)
+    if cmd in VERBS:
+        return run_script("layout", extra + fix_flags(SCRIPTS["layout"], verb_args(cmd, args)))
     if cmd in SCRIPTS:
-        return run_script(cmd, extra + args)
+        return run_script(cmd, extra + fix_flags(SCRIPTS[cmd], args))
     if cmd == "missing":
         return run_script("art", extra + ["--list-missing", *args])
     if cmd == "retry":
@@ -318,7 +402,8 @@ def main(argv: list) -> int:
             return subprocess.call([*editor.split(), str(path)])
         return subprocess.call(["open", "-t", str(path)] if sys.platform == "darwin" else ["xdg-open", str(path)])
 
-    print(f"Unknown command {cmd!r}. Run '{PROG} help' for the list.", file=sys.stderr)
+    print(f"Unknown command {cmd!r}. {suggest(cmd)}", file=sys.stderr)
+    print(EVERYDAY + f"\nRun '{PROG} help' for everything.", file=sys.stderr)
     return 2
 
 
