@@ -139,3 +139,15 @@ class DroppedConnectionTests(unittest.TestCase):
         job = artists._search_job(artists.Job("Whoever"), {"search_results": 5})
         self.assertEqual(job.status, "found")
         self.assertEqual(job.picks[0].deezer_name, "Whoever Official")
+
+    def test_a_channel_avatar_falls_back_to_the_pages_preview_image(self):
+        real_thumbs, real_fetch = artists.channel_thumbnails, artists.fetch_url
+        artists.channel_thumbnails = lambda url: [{"id": "0", "url": "https://x/banner", "width": 1060, "height": 175}]
+        artists.fetch_url = lambda *a, **k: b'<meta property="og:image" content="https://yt3.googleusercontent.com/z=s900-c-k">'
+        self.addCleanup(setattr, artists, "channel_thumbnails", real_thumbs)
+        self.addCleanup(setattr, artists, "fetch_url", real_fetch)
+        self.assertEqual(artists.channel_avatar("https://www.youtube.com/channel/UCx"),
+                         "https://yt3.googleusercontent.com/z=s800-c-k")
+        artists.fetch_url = lambda *a, **k: b"<html></html>"
+        with self.assertRaises(ValueError):
+            artists.channel_avatar("https://www.youtube.com/channel/UCx")
