@@ -112,7 +112,7 @@ class DroppedConnectionTests(unittest.TestCase):
                             video("C", "Some Label", 5000, "Whoever - song"), video("D", "Cover Guy", 9, "Whoever cover")],
                            [chan("A", "Whoever - Topic"), chan("B", "Whoever Official"), chan("C", "Some Label")])
         got = artists.popular_video_channels("whoever")
-        self.assertEqual([c["name"] for c in got], ["Whoever Official", "Whoever"])
+        self.assertEqual([c["name"] for c in got], ["Whoever Official"])
         self.assertTrue(got[0]["picture_xl"].startswith("https://x/a=s800-"))
         self.assertEqual(artists.popular_video_channels("   "), [])
 

@@ -27,8 +27,8 @@ Usage:
 """
 
 import argparse
-import io
 import html
+import io
 import json
 import os
 import queue
@@ -415,8 +415,8 @@ def youtube_channels(name: str) -> list:
 
 def popular_video_channels(name: str, limit: int = 3) -> list:
     """
-    Channels that uploaded the most-watched videos for `name`, most-viewed first, as
-    channel dicts with a picture. Finds artists whose channel search came up empty.
+    The most-watched channel for `name` that has a picture, as a one-item list ([] when
+    none): tries the `limit` most-viewed in turn. Finds artists whose channel search came up empty.
     Only channels named after the artist count ("Name Official", "Name - Topic"):
     a video with the name in its title can be a cover, a reupload or a label's
     upload, and YouTube pads a search for an obscure name with unrelated popular
@@ -438,6 +438,7 @@ def popular_video_channels(name: str, limit: int = 3) -> list:
         mine = [c for c in youtube_channels(info[cid]) if cid in c["link"]]
         if mine:
             out.append(mine[0])
+            break
     return out
 
 
@@ -527,8 +528,8 @@ def pick_from_text(name: str, text: str) -> Pick:
         if not picture_of(artist):
             raise ValueError("Deezer has no picture for that artist")
         pick = make_pick(name, artist)
-    elif YOUTUBE_CHANNEL_URL_RE.match(text):
-        pick = Pick(name, link=text, picture_url=channel_avatar(YOUTUBE_CHANNEL_URL_RE.match(text).group(0)))
+    elif channel := YOUTUBE_CHANNEL_URL_RE.match(text):
+        pick = Pick(name, link=text, picture_url=channel_avatar(channel.group(0)))
     elif text.lower().startswith(("http://", "https://")):
         pick = Pick(name, picture_url=text)
     elif Path(text).expanduser().is_file():
@@ -569,9 +570,9 @@ def _find(name: str) -> tuple:
                 if channel["link"] not in seen:
                     seen.add(channel["link"])
                     yt.append(channel)
-            if exact_match(yt, name)[0]:
+            yt_artist, yt_reason = exact_match(yt, name)
+            if yt_artist:
                 break
-        yt_artist, yt_reason = exact_match(yt, name)
         found, artist, reason = found + yt, yt_artist, reason or yt_reason
     return artist, reason, found
 
