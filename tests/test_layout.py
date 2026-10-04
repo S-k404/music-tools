@@ -91,6 +91,9 @@ class LayoutTestCase(unittest.TestCase):
         })
         (self.root / "Empty/Deep").mkdir(parents=True)
 
+    def root_ignores_case(self) -> bool:
+        return (self.root / "ADO").exists() and (self.root / "ado").exists()
+
     def scan(self):
         return ll.scan(self.root, [self.root / "Artist Art"])
 
@@ -101,7 +104,9 @@ class ScanTests(LayoutTestCase):
         s = self.scan()
         names = lambda groups: sorted(g.folders[0].path.name + "|" + "|".join(f.path.name for f in g.folders[1:]) for g in groups)
         self.assertEqual(names(s.albums), ["Show|Ado - Show"])
-        self.assertEqual([sorted(f.path.name for f in g.folders) for g in s.artists], [["A$AP Rocky", "A$ap Rocky"]])
+        # macOS and Windows volumes ignore case, so there "A$AP Rocky" and "A$ap Rocky" are one folder
+        self.assertEqual([sorted(f.path.name for f in g.folders) for g in s.artists],
+                         [] if self.root_ignores_case() else [["A$AP Rocky", "A$ap Rocky"]])
         self.assertEqual([f.path.name for f in s.collabs], ["Yuki Chiba, VALORANT"])
         self.assertEqual([f.path.name for f in s.odd], ["🎧"])
         self.assertEqual([p.name for p in s.loose], ["stray.txt"])
@@ -111,6 +116,18 @@ class ScanTests(LayoutTestCase):
         self.assertEqual(sorted(empty), ["Album", "Deep", "Empty", "Lonely"])
         self.assertLess(empty.index("Deep"), empty.index("Empty"))                            # children before parents
         self.assertLess(empty.index("Album"), empty.index("Lonely"))
+
+    def test_the_summary_line_pluralises_each_phrase(self):
+        import io
+        from contextlib import redirect_stdout
+        self.library()
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ll.print_report(self.scan())
+        text = buf.getvalue()
+        self.assertIn("1 duplicate album folder ", text)
+        self.assertIn("2 .lrc.bak files", text)
+        self.assertNotIn("ss ", text.split("songs")[-1])   # no "wayss" / "filess"
 
     def test_the_canonical_folder_is_the_one_with_the_most_songs(self):
         self.library()
