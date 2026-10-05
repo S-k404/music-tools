@@ -1,5 +1,31 @@
 # Changelog
 
+## Added: Windows support, and fixes for other setups
+
+- **Windows 10/11 now works.** `setup.bat` creates `.venv` and installs the packages, and `mt.cmd` is `mt` for
+  Command Prompt and PowerShell (put the folder on `PATH`). `./setup.sh` also runs in Git Bash, and on macOS it now
+  picks a Python 3.11+ itself instead of failing on the older built-in `python3`.
+- **The launcher**: finds the venv's python in `.venv\Scripts` as well as `.venv/bin`, and waits for it on Windows
+  (where `os.execv` doesn't replace the process, so the shell got its prompt back while the menu was running).
+- **The menu**: arrow keys now work on Windows (it used numbered choices there before); running a tool from the menu no
+  longer crashes on Windows (`preexec_fn`); a dragged-in `C:\Users\me\Music` keeps its backslashes (it was run
+  through a POSIX shell parser); "open the settings file / logs folder" uses Notepad / Explorer on Windows and says where
+  the file is, instead of crashing, on a machine without `xdg-open`; the log viewer works without `less`.
+- **yt-dlp is found where setup put it.** It was only looked up on `PATH`, but setup installs it into `.venv`, whose
+  `bin` / `Scripts` folder isn't on `PATH`, so YouTube searches said "yt-dlp is not installed" until you also ran
+  `brew install yt-dlp`. It now falls back to running the installed package, and the install hints name the right
+  package manager for the system (`brew`, `winget`, `pip`).
+- **Text is UTF-8 everywhere.** The output of yt-dlp and ffmpeg, `failed_album_art.txt` and the test files were read
+  and written in the system's legacy code page on Windows (and under non-UTF-8 locales), which garbled or crashed on
+  non-Latin titles. Printing a title the terminal can't show now prints `?` instead of stopping the run.
+- **Terminal**: colours and cursor control are switched on in Windows consoles (and skipped under `TERM=dumb`).
+- **Names**: on Windows, folder and picture names such as `CON`, `NUL` and `COM1` get an underscore. The config is also
+  read from `%APPDATA%\music-tools\config.toml` on Windows. Printed hints quote paths for the shell in use.
+- **Tests and CI**: the suite now runs on Ubuntu, macOS and Windows (Python 3.11 to 3.13), and a second job runs the
+  real setup script and launcher on each. Tests no longer rely on POSIX-only paths, permissions or the system's
+  default text encoding. New `tests/test_platform.py` covers each system's branch.
+- README: Windows setup, the `mt` shortcut, config paths, and a "Windows, macOS and Linux" section.
+
 ## Fixed: `mt organize` and placeholder tags
 
 - Tags that literally say `null`, `none`, `n/a`, `Unknown`, `Unknown Artist` or `Unknown Album` are now treated as missing, so

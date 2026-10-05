@@ -29,7 +29,6 @@ import io
 import json
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -39,8 +38,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from common import (HERE, STOP, fetch_url, find_audio, start_log, install_stop_handler, load_config, log,
-                    normal_ctrl_c, progress, require, resolve)
+from common import (HERE, IS_WINDOWS, STOP, fetch_url, find_audio, install_hint, install_stop_handler, load_config, log,
+                    normal_ctrl_c, progress, require, resolve, shell_quote, start_log, subprocess_text, ytdlp_command)
 
 require("mutagen", "PIL")
 
@@ -205,12 +204,13 @@ def embed(path: Path, jpeg: bytes):
 
 def youtube_search(query: str, n: int):
     """Return (results, error message)."""
-    if not shutil.which("yt-dlp"):
-        return [], "yt-dlp is not installed (brew install yt-dlp)"
+    command = ytdlp_command()
+    if not command:
+        return [], f"yt-dlp is not installed ({install_hint('yt-dlp')})"
     try:
         r = subprocess.run(
-            ["yt-dlp", "--no-warnings", "--flat-playlist", "-J", f"ytsearch{n}:{query}"],
-            capture_output=True, text=True, timeout=90,
+            [*command, "--no-warnings", "--flat-playlist", "-J", f"ytsearch{n}:{query}"],
+            timeout=90, **subprocess_text(),
         )
     except subprocess.TimeoutExpired:
         return [], "YouTube search timed out"
@@ -380,7 +380,7 @@ def review(job: Job) -> None:
 
 def _probe(path: Path, entry: str) -> str:
     r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", entry,
-                        "-of", "default=nw=1:nk=1", str(path)], capture_output=True, text=True, timeout=60)
+                        "-of", "default=nw=1:nk=1", str(path)], timeout=60, **subprocess_text())
     return r.stdout.strip().splitlines()[0] if r.stdout.strip() else ""
 
 
@@ -412,7 +412,7 @@ def convert_webm(path: Path):
             return None, f"{out.name} already exists, not overwriting it"
         tmp = out.with_name(f".{out.stem}.converting{ext}")
         r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(path), "-map", "0:a:0", "-c:a", "copy",
-                            "-map_metadata", "0", str(tmp)], capture_output=True, text=True, timeout=1800)
+                            "-map_metadata", "0", str(tmp)], timeout=1800, **subprocess_text())
         if r.returncode != 0:
             tmp.unlink(missing_ok=True)
             return None, f"ffmpeg failed: {(r.stderr.strip().splitlines() or ['?'])[-1][:150]}"
@@ -472,7 +472,7 @@ def main():
     if args.retry:
         if not FAILED_LIST.exists():
             sys.exit(f"Nothing to retry ({FAILED_LIST.name} not found).")
-        args.paths = [l for l in FAILED_LIST.read_text().splitlines() if l.strip()]
+        args.paths = [l for l in FAILED_LIST.read_text(encoding="utf-8").splitlines() if l.strip()]
     url_id = None
     if args.url:
         m = YT_ID_RE.search(args.url) or BARE_ID_RE.fullmatch(args.url.strip())
@@ -494,7 +494,7 @@ def main():
     webms = [p for p in unsupported if p.suffix.lower() == ".webm"]
     if opts["convert_webm"] and webms and not args.list_missing and not args.dry_run:
         if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
-            log("! --convert-webm needs ffmpeg (brew install ffmpeg); skipping conversion")
+            log(f"! --convert-webm needs ffmpeg ({install_hint('ffmpeg')}); skipping conversion")
         else:
             with ThreadPoolExecutor(min(workers, 4)) as pool:
                 converted = list(progress(pool.map(convert_webm, webms), len(webms), "Converting webm", quiet))
@@ -566,18 +566,19 @@ def main():
     for j in ok:
         link = f"  https://youtu.be/{j.video_id}" if j.video_id else ""
         print(f"✓ {j.path.name}\n    {j.source}{link}")
-    script = shlex.quote(str(Path(__file__).resolve()))
+    python = "python" if IS_WINDOWS else "python3"
+    script = shell_quote(str(Path(__file__).resolve()))
     if failed or unsupported:
         print("\nStill without art:")
         for j in failed:
             print(f"✗ {j.path.name}\n    reason: {j.source or 'no match'}")
             print(f"    search: {search_link(j)}")
-            print(f"    fix:    python3 {script} {shlex.quote(str(j.path))} --url PASTE_LINK")
+            print(f"    fix:    {python} {script} {shell_quote(str(j.path))} --url PASTE_LINK")
         for p, why in unsupported.items():
             print(f"✗ {p.name}\n    {why}")
     if (failed or unsupported) and not args.dry_run:
-        FAILED_LIST.write_text("".join(f"{p}\n" for p in [j.path for j in failed] + list(unsupported)))
-        print(f"\nRe-run just these with:  python3 {script} --retry")
+        FAILED_LIST.write_text("".join(f"{p}\n" for p in [j.path for j in failed] + list(unsupported)), encoding="utf-8")
+        print(f"\nRe-run just these with:  {python} {script} --retry")
     elif not failed and not unsupported and args.retry and FAILED_LIST.exists():
         FAILED_LIST.unlink()
     print(f"\nDone. already had art: {len(files) - len(missing)}, "

@@ -35,8 +35,6 @@ import json
 import os
 import queue
 import re
-import shlex
-import shutil
 import ssl
 import subprocess
 import sys
@@ -50,9 +48,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from common import (STOP, atomic_write, bold, cyan, dim, fetch_url, find_audio, fit, folder_problem, green, heading, install_stop_handler,
-                    load_config, log, normal_ctrl_c, pink, plural, progress, red, require, resolve, section, start_log,
-                    text_width, yellow)
+from common import (STOP, atomic_write, bold, clean_path, cyan, dim, fetch_url, find_audio, fit, folder_problem, green, heading, install_stop_handler,
+                    load_config, log, normal_ctrl_c, pink, plural, progress, red, require, resolve, section, shell_quote,
+                    start_log, subprocess_text, text_width, windows_safe, yellow, ytdlp_command)
 
 require("mutagen", "PIL")
 
@@ -163,7 +161,7 @@ def query_variants(name: str) -> list:
 
 def safe_filename(name: str) -> str:
     s = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", unicodedata.normalize("NFC", clean_text(name)))
-    return s.strip().lstrip(".")[:120].strip() or "artist"
+    return windows_safe(s.strip().lstrip(".")[:120].strip() or "artist")
 
 
 def artist_homes(music_dir) -> dict:
@@ -372,14 +370,15 @@ def big_avatar(thumbnails: list) -> str:
 
 def _youtube_entries(url: str) -> list:
     """The first page of results of a YouTube search URL ([] when yt-dlp is missing, refused or gave up)."""
-    if not shutil.which("yt-dlp") or YOUTUBE_GAVE_UP.given_up() or STOP.is_set():
+    command = ytdlp_command()
+    if not command or YOUTUBE_GAVE_UP.given_up() or STOP.is_set():
         return []
     YOUTUBE_LIMIT.wait()
     try:
-        r = subprocess.run(["yt-dlp", "--no-warnings", "--flat-playlist",
+        r = subprocess.run([*command, "--no-warnings", "--flat-playlist",
                             "--playlist-end", str(YOUTUBE_RESULTS),
                             "--extractor-retries", str(YOUTUBE_RETRIES), "-J", url],
-                           capture_output=True, text=True, timeout=YOUTUBE_TIMEOUT)
+                           timeout=YOUTUBE_TIMEOUT, **subprocess_text())
     except (subprocess.TimeoutExpired, OSError):
         YOUTUBE_GAVE_UP.record(False)
         return []
@@ -477,12 +476,13 @@ def fetch_picture(pick: Pick) -> None:
 
 def channel_thumbnails(url: str) -> list:
     """The pictures (avatar, banner) of a YouTube channel page, as yt-dlp lists them."""
-    try:
-        r = subprocess.run(["yt-dlp", "--no-warnings", "--flat-playlist", "--playlist-items", "0", "-J", url],
-                           capture_output=True, text=True, timeout=60)
-        return json.loads(r.stdout).get("thumbnails") or []
-    except FileNotFoundError:
+    command = ytdlp_command()
+    if not command:
         raise ValueError("yt-dlp isn't installed, so I can't read YouTube channel pages")
+    try:
+        r = subprocess.run([*command, "--no-warnings", "--flat-playlist", "--playlist-items", "0", "-J", url],
+                           timeout=60, **subprocess_text())
+        return json.loads(r.stdout).get("thumbnails") or []
     except (subprocess.TimeoutExpired, json.JSONDecodeError, AttributeError, OSError):
         raise ValueError("couldn't read that YouTube channel")
 
@@ -518,12 +518,7 @@ def channel_avatar(url: str) -> str:
 
 def pick_from_text(name: str, text: str) -> Pick:
     """A Deezer artist link, a YouTube channel link, an image link, or an image file the user gave us."""
-    try:
-        parts = shlex.split(text)  # a file dragged into the terminal arrives quoted/escaped
-        text = parts[0] if len(parts) == 1 else text
-    except ValueError:
-        pass
-    text = text.strip().strip("'\"")
+    text = clean_path(text)  # a file dragged into the terminal arrives quoted/escaped
     m = DEEZER_ARTIST_RE.search(text)
     if m:
         artist = deezer_get(f"artist/{m.group(1)}")
@@ -806,7 +801,7 @@ def report(todo: list, have: list, out_dir: Path, dry_run: bool, homes: dict = N
         section("Couldn't find")
         for j in failed:
             print(f"  {red('✗')} {fit(j.name, width)}  {songs(j)}  {dim(j.reason or 'no match')}")
-            print(dim(f"      ↳ {PROG} artists --artist {shlex.quote(j.name)} --image LINK_OR_FILE"))
+            print(dim(f"      ↳ {PROG} artists --artist {shell_quote(j.name)} --image LINK_OR_FILE"))
         print(dim("\n  Find the artist on deezer.com, then run a ↳ line with their artist link,"
                   "\n  or with any image link or image file."))
 
@@ -971,7 +966,7 @@ def main():
                 "# Artist | YouTube channel link, Deezer link, image link or image file\n"
                 + "".join(f"{name} |\n" for name in missing), encoding="utf-8")
             print(f"  {green('✓')} wrote {plural(len(missing), 'artist')} to {args.write_missing}; fill in the links, then: "
-                  f"mt artists --from-file {shlex.quote(args.write_missing)}\n")
+                  f"mt artists --from-file {shell_quote(args.write_missing)}\n")
         except OSError as e:
             print(red(f"  Could not write {args.write_missing}: {e.strerror or e}"))
 

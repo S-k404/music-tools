@@ -6,10 +6,12 @@ missing or wrong. Every tool previews before it changes anything, runs on severa
 reads one shared `config.toml`, so you set your music folder once.
 
 ```bash
-./setup.sh                  # once: installs the packages and creates config.toml
+./setup.sh                  # once: installs the packages and creates config.toml  (Windows: setup.bat)
 mt dir "/path/to/Music"     # point it at your library
 mt auto --dry-run           # preview everything; then run  mt auto
 ```
+
+Works on macOS, Linux and Windows 10/11. Windows differences are collected under "Setup" and "Windows, macOS and Linux" below.
 
 ## Quick commands
 
@@ -45,31 +47,46 @@ The older names (`all`, `art`, `layout`, `stats`, ...) still work, and small sli
 
 ## Requirements
 
-- Python 3.11 or newer (`common.py` exits with a clear message on anything older).
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`brew install yt-dlp`) for the YouTube searches.
+- Python 3.11 or newer (`common.py` exits with a clear message on anything older). The setup script looks for a
+  new enough Python itself, so macOS's older built-in `python3` isn't a problem.
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) for the YouTube searches. The setup script installs it into `.venv`
+  and the tools find it there; one you installed yourself (`brew install yt-dlp`,
+  `winget install yt-dlp.yt-dlp`) is used first.
+- [ffmpeg](https://ffmpeg.org/) (optional, only for `--convert-webm`): `brew install ffmpeg`,
+  `winget install Gyan.FFmpeg` or `sudo apt install ffmpeg`.
 - Python packages from `requirements.txt`: `mutagen` (tags), `Pillow` (cover art), `tqdm` (progress bars).
-  `./setup.sh` installs them.
+  The setup script installs them.
 - Optional, for lyrics romanization: `cutlet` + `unidic-lite` (Japanese, about 250 MB), `pypinyin`
   (Chinese) and `korean-romanizer` (Korean). Without them that column is left out (and the tool says so);
   Korean falls back to a smaller built-in table. Russian needs no package.
 
 ## Setup
 
+macOS and Linux (also Git Bash on Windows):
+
 ```bash
 ./setup.sh
+```
+
+Windows (Command Prompt or PowerShell; needs Python 3.11+ from [python.org](https://www.python.org/downloads/)
+or `winget install Python.Python.3.13`):
+
+```bat
+setup.bat
 ```
 
 This installs the packages into a private `.venv` folder (so it works even where `pip install` is
 blocked, e.g. Homebrew Python) and creates `config.toml` from `config.example.toml`. The
 `music-tools` / `mt` command uses that `.venv` automatically; the scripts run on their own with
-`.venv/bin/python`, e.g. `.venv/bin/python fix_album_art.py --list-missing`. If the packages are already
-installed, plain `python3` works too.
+`.venv/bin/python` (Windows: `.venv\Scripts\python.exe`), e.g. `.venv/bin/python fix_album_art.py --list-missing`.
+If the packages are already installed, plain `python3` (Windows: `python`) works too.
 
 ## The `mt` command
 
 `mt` on its own opens an interactive menu: arrow keys to move, Enter to choose, Space to switch options
 on/off, `q` to go back. From there you can do everything below, switch folders (type a path with Tab
-completion or drag a folder in from Finder), change every setting, and read the logs of previous runs.
+completion or drag a folder in from Finder or File Explorer), change every setting, and read the logs of
+previous runs.
 
 ```
   ╔╦╗╦ ╦╔═╗╦╔═╗  ╔╦╗╔═╗╔═╗╦  ╔═╗     /\_/\   ♪
@@ -134,6 +151,15 @@ echo "alias mt='python3 $PWD/music-tools'" >> ~/.zshrc && source ~/.zshrc
 
 After that every example in this README works as `mt <command>`. Without the alias use `./music-tools`.
 
+On Windows the repo folder has an `mt.cmd`: add the folder to your `PATH` (Settings > System > About > Advanced
+system settings > Environment Variables), or in PowerShell make a shortcut for it once:
+
+```powershell
+Add-Content $PROFILE 'function mt { & "C:\path\to\music-tools\mt.cmd" @args }'
+```
+
+Then open a new terminal and `mt` works there too. Without it use `.\mt.cmd` from the repo folder.
+
 ## Choosing folders and settings
 
 Use the `music-tools` commands above, or edit `config.toml` directly
@@ -150,7 +176,33 @@ Every option is explained in `config.example.toml`. You can also skip the config
 and pass folders directly: `python3 fix_album_art.py "/some/folder" "/other/folder"`.
 Command-line flags always override the config. The config is looked up in this
 order: `--config PATH`, `$MUSIC_TOOLS_CONFIG`, `config.toml` next to the scripts,
-`~/.config/music-tools/config.toml`. `$MUSIC_DIR` overrides `music_dir`.
+`%APPDATA%\music-tools\config.toml` (Windows only), `~/.config/music-tools/config.toml`.
+`$MUSIC_DIR` overrides `music_dir`. In the file, write Windows paths with forward slashes
+(`"C:/Users/me/Music"`) or single quotes (`'C:\Users\me\Music'`), since a backslash is an escape in TOML's
+double-quoted strings. `mt dir` and the menu take care of that for you.
+
+
+## Windows, macOS and Linux
+
+The same commands work everywhere. What differs:
+
+- **Starting it**: `setup.sh` and `./music-tools` on macOS and Linux, `setup.bat` and `mt.cmd` on Windows. In the
+  examples further down, `python3` is `python` on Windows.
+- **Menu**: arrow keys work in Windows Terminal, PowerShell and Command Prompt. Tab-completing a path only works
+  where Python has `readline` (macOS, Linux); on Windows paste or drag the folder in. If a terminal can't do
+  arrow keys, the menu falls back to numbered choices.
+- **Opening files**: "open the settings file" uses TextEdit/your default text editor (macOS), Notepad (Windows)
+  or `xdg-open` (Linux). Where there is no such program (a server) you're told where the file is instead.
+  `mt edit` uses `$VISUAL` / `$EDITOR` first.
+- **Names the tools create** (`Artist/Album` folders and artist pictures) are already free of the characters
+  Windows forbids (`\ / : * ? " < > |`). On Windows, names such as `CON`, `NUL` or `COM1` get an underscore, and
+  Windows' 260-character path limit applies unless you've switched on long paths.
+- **Text**: files are always written as UTF-8, and a title the terminal can't draw is shown as `?` instead of
+  stopping the run.
+- **The Trash**: `--convert-webm` moves the original `.webm` to the Trash on macOS only; elsewhere it keeps it
+  and says so.
+- **Colours and the animated cat** need a terminal that understands ANSI codes (every current one does);
+  `NO_COLOR=1` and `MUSIC_TOOLS_NO_ANIMATION=1` turn them off.
 
 ## Safety
 

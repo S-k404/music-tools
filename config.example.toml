@@ -1,8 +1,11 @@
 # Copy this file to config.toml (next to the scripts) or ~/.config/music-tools/config.toml
-# and edit it. Command-line flags override anything set here.
+# (on Windows also %APPDATA%\music-tools\config.toml) and edit it.
+# Command-line flags override anything set here.
 
 # Root of your music library. Used by fix_misidentified_tags.py when no path is given,
 # and as the base for relative folders below. The MUSIC_DIR env var overrides it.
+# On Windows write it with forward slashes ("C:/Users/you/Music"), or double every backslash
+# ("C:\\Users\\you\\Music"), or use single quotes ('C:\Users\you\Music').
 music_dir = "~/Music"
 
 # How many files / YouTube lookups to handle at once.
