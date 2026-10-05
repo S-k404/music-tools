@@ -137,11 +137,11 @@ class AtomicWriteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
             target = d / "a.txt"
-            target.write_text("old")
+            target.write_text("old", encoding="utf-8")
             with mock.patch.object(os, "replace", side_effect=OSError("disk full")):
                 with self.assertRaises(OSError):
                     common.atomic_write(target, "new")
-            self.assertEqual(target.read_text(), "old")
+            self.assertEqual(target.read_text(encoding="utf-8"), "old")
             self.assertEqual([p.name for p in d.iterdir()], ["a.txt"])
 
 

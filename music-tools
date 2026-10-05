@@ -4,19 +4,28 @@
 import difflib
 import os
 import re
+import shlex
+import signal
 import subprocess
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-# ./setup.sh installs the packages into .venv; use it automatically so nobody has to type .venv/bin/python
-_VENV_PYTHON = HERE / ".venv" / "bin" / "python"
-if _VENV_PYTHON.is_file() and Path(sys.prefix).resolve() != (HERE / ".venv").resolve() \
+# setup (setup.sh, or setup.bat on Windows) installs the packages into .venv; use it automatically so nobody has
+# to type the path to its python
+_VENV = HERE / ".venv"
+_VENV_PYTHON = _VENV / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+if _VENV_PYTHON.is_file() and Path(sys.prefix).resolve() != _VENV.resolve() \
         and not os.environ.get("MUSIC_TOOLS_NO_VENV"):
+    if sys.platform == "win32":
+        # os.execv doesn't replace the process on Windows (the shell would take its prompt back while the menu
+        # runs), so wait for the child. Ctrl-C reaches it too and it stops safely; it mustn't kill this one first.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        sys.exit(subprocess.call([str(_VENV_PYTHON), *sys.argv]))
     os.execv(str(_VENV_PYTHON), [str(_VENV_PYTHON), *sys.argv])
 sys.path.insert(0, str(HERE))
 
-from common import DEFAULTS, config_path, read_raw_config, resolve, save_config  # noqa: E402
+from common import DEFAULTS, IS_WINDOWS, config_path, open_path, read_raw_config, resolve, save_config  # noqa: E402
 from interactive import run as run_menu, run_tool  # noqa: E402
 
 PROG = os.environ.get("MUSIC_TOOLS_NAME") or Path(sys.argv[0]).name
@@ -403,8 +412,13 @@ def main(argv: list) -> int:
             save_config(cfg, path)
         editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
         if editor:
-            return subprocess.call([*editor.split(), str(path)])
-        return subprocess.call(["open", "-t", str(path)] if sys.platform == "darwin" else ["xdg-open", str(path)])
+            if IS_WINDOWS:  # the command line as typed, so a quoted "C:\Program Files\..." editor works
+                return subprocess.call(f"{editor} {subprocess.list2cmdline([str(path)])}")
+            return subprocess.call([*shlex.split(editor), str(path)])
+        if not open_path(path, edit=True):
+            print(f"No program found to open it with. Edit {path} yourself.", file=sys.stderr)
+            return 1
+        return 0
 
     print(f"Unknown command {cmd!r}. {suggest(cmd)}", file=sys.stderr)
     print(EVERYDAY + f"\nRun '{PROG} help' for everything.", file=sys.stderr)

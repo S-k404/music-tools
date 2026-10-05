@@ -166,7 +166,7 @@ class CleanTests(LayoutTestCase):
         self.assertFalse((self.root / "Empty").exists())
         self.assertFalse((self.root / "Lonely").exists())           # held only a backup and junk
         # the backup landed where the lyrics tool's lyrics.backup_dir mirror would look for it
-        self.assertEqual((backups / "Yuki Chiba, VALORANT/Singles/s.lrc.bak").read_text(), "bak")
+        self.assertEqual((backups / "Yuki Chiba, VALORANT/Singles/s.lrc.bak").read_text(encoding="utf-8"), "bak")
         self.assertTrue((self.root / "Yuki Chiba, VALORANT/Singles/s.lrc").is_file())   # the song's own files stay
         self.assertEqual(len([o for o in rec.ops if o["op"] == "move"]), 2)
 
@@ -206,11 +206,11 @@ class MergeTests(LayoutTestCase):
         ll.do_merge(s, s.albums, apply=True)
         show, other = self.root / "Ado/Show", self.root / "Ado/Ado - Show"
         self.assertEqual(keep, show)
-        self.assertEqual((show / "03 c.flac").read_text(), "a3")
-        self.assertEqual((show / "03 c.lrc").read_text(), "lyrics c")        # sidecars travel with the song
-        self.assertEqual((show / "03 c.html").read_text(), "page")
-        self.assertEqual((show / "01 a.flac").read_text(), "a1")             # kept, not overwritten
-        self.assertEqual((other / "01 a.flac").read_text(), "DIFFERENT")     # the conflicting copy stays where it was
+        self.assertEqual((show / "03 c.flac").read_text(encoding="utf-8"), "a3")
+        self.assertEqual((show / "03 c.lrc").read_text(encoding="utf-8"), "lyrics c")        # sidecars travel with the song
+        self.assertEqual((show / "03 c.html").read_text(encoding="utf-8"), "page")
+        self.assertEqual((show / "01 a.flac").read_text(encoding="utf-8"), "a1")             # kept, not overwritten
+        self.assertEqual((other / "01 a.flac").read_text(encoding="utf-8"), "DIFFERENT")     # the conflicting copy stays where it was
         self.assertFalse((other / "02 b.flac").exists())                     # identical copy dropped
         self.assertFalse((other / "cover.jpg").exists())
         self.assertTrue(other.is_dir())                                      # not empty, so not removed
@@ -218,11 +218,11 @@ class MergeTests(LayoutTestCase):
     def test_a_clean_merge_removes_the_emptied_folder_and_updates_the_lyrics_memory(self):
         self.make({"Ado/Show/01.flac": "1", "Ado/Ado - Show/02.flac": "2", "Ado/Ado - Show/._02.flac": "j"})
         old = str(self.root / "Ado/Ado - Show/02.flac")
-        self.checked.write_text(json.dumps({old: {"status": "notfound"}, "other": {"status": "english"}}))
+        self.checked.write_text(json.dumps({old: {"status": "notfound"}, "other": {"status": "english"}}), encoding="utf-8")
         s = self.scan()
         ll.do_merge(s, s.albums, apply=True)
         self.assertFalse((self.root / "Ado/Ado - Show").exists())
-        data = json.loads(self.checked.read_text())
+        data = json.loads(self.checked.read_text(encoding="utf-8"))
         self.assertNotIn(old, data)
         self.assertEqual(data[str(self.root / "Ado/Show/02.flac")], {"status": "notfound"})
         self.assertIn("other", data)
@@ -230,8 +230,8 @@ class MergeTests(LayoutTestCase):
     def test_apply_then_undo_restores_the_library_exactly(self):
         self.library()
         before = snapshot(self.root)
-        self.checked.write_text(json.dumps({str(self.root / "Ado/Ado - Show/03 c.flac"): {"status": "notfound"}}))
-        keys_before = self.checked.read_text()
+        self.checked.write_text(json.dumps({str(self.root / "Ado/Ado - Show/03 c.flac"): {"status": "notfound"}}), encoding="utf-8")
+        keys_before = self.checked.read_text(encoding="utf-8")
         s = self.scan()
         rec = ll.do_merge(s, s.albums, apply=True)
         saved = rec.save()
@@ -241,7 +241,7 @@ class MergeTests(LayoutTestCase):
         # junk deleted by the merge ("._03 c.flac") is junk by definition and isn't brought back
         before.pop("Ado/Ado - Show/._03 c.flac")
         self.assertEqual(after, before)
-        self.assertEqual(json.loads(self.checked.read_text()), json.loads(keys_before))
+        self.assertEqual(json.loads(self.checked.read_text(encoding="utf-8")), json.loads(keys_before))
         self.assertTrue(saved.with_name(saved.stem + ".undone.json").is_file())
         self.assertIsNone(ll.latest_manifest())   # an undone run can't be undone twice
 

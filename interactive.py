@@ -3,28 +3,32 @@
 import copy
 import glob
 import os
-import shlex
 import shutil
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
-from common import (CHOICES, COLOR, DEFAULTS, HERE, LOG_DIR, bold, config_path, cyan, dim, green, read_raw_config,
-                    red, resolve, save_config, yellow)
+from common import (ANSI, CHOICES, COLOR, DEFAULTS, HERE, IS_WINDOWS, LOG_DIR, bold, clean_path, config_path, cyan,
+                    dim, green, open_path, read_raw_config, red, resolve, save_config, shell_quote, yellow)
 
 try:
     import termios
     import tty
     import select
     _TERMIOS_AVAILABLE = True
-except ImportError:  # Windows: fall back to numbered menus
+except ImportError:  # Windows
     _TERMIOS_AVAILABLE = False
+try:
+    import msvcrt
+except ImportError:  # macOS, Linux
+    msvcrt = None
 
 
 def raw_mode() -> bool:
     try:
-        return _TERMIOS_AVAILABLE and sys.stdin.isatty() and sys.stdout.isatty() and hasattr(sys.stdin, "fileno")
+        return (_TERMIOS_AVAILABLE or msvcrt is not None) and sys.stdin.isatty() and sys.stdout.isatty() and hasattr(sys.stdin, "fileno")
     except Exception:
         return False
 
@@ -95,13 +99,13 @@ def banner(tick=None) -> list:
 
 
 def show_cursor(on: bool):
-    if sys.stdout.isatty():
+    if ANSI:
         sys.stdout.write("\x1b[?25h" if on else "\x1b[?25l")
         sys.stdout.flush()
 
 
 def clear():
-    if sys.stdout.isatty():
+    if ANSI:
         sys.stdout.write("\x1b[H\x1b[2J\x1b[3J")
         sys.stdout.flush()
 
@@ -109,6 +113,29 @@ def clear():
 # ---------------------------------------------------------------- input
 def read_key(timeout=None):
     """Return the next key, or None if timeout (seconds) passes first."""
+    return _read_key_posix(timeout) if _TERMIOS_AVAILABLE else _read_key_windows(timeout)
+
+
+def _read_key_windows(timeout):
+    if timeout is not None:
+        deadline = time.monotonic() + timeout
+        while not msvcrt.kbhit():
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(0.01)
+    ch = msvcrt.getwch()
+    if ch in ("\x00", "\xe0"):  # arrows and function keys come as a prefix, then a code
+        return {"H": "up", "P": "down", "M": "right", "K": "left"}.get(msvcrt.getwch(), "")
+    if ch == "\x03":
+        raise KeyboardInterrupt
+    if ch == "\x1b":
+        return "esc"
+    if ch in ("\r", "\n"):
+        return "enter"
+    return "space" if ch == " " else ch
+
+
+def _read_key_posix(timeout):
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     try:
@@ -150,7 +177,7 @@ def _render(title, header, rows, cursor, footer, big=False, tick=None, redraw=Fa
             line += "  " + dim(hint)
         out.append(line)
     out += ["", dim(footer)]
-    if redraw and sys.stdout.isatty():
+    if redraw and ANSI:
         # overwrite in place (no flicker): home, each line + clear-to-end, clear below
         sys.stdout.write("\x1b[H" + "\n".join(line + "\x1b[K" for line in out) + "\x1b[J")
         sys.stdout.flush()
@@ -237,19 +264,6 @@ def _path_completer(text, state):
     return matches[state] if state < len(matches) else None
 
 
-def clean_path(text: str) -> str:
-    """Accept a path typed, pasted, or dragged in from Finder (quoted or with '\\ ')."""
-    text = text.strip()
-    if not text:
-        return ""
-    try:
-        parts = shlex.split(text)
-        text = parts[0] if len(parts) == 1 else text
-    except ValueError:
-        pass
-    return text.strip("'\"")
-
-
 def ask(prompt, default="", paths=False):
     """Read a line. Returns None if the user cancels (Ctrl-C / Ctrl-D)."""
     if readline and paths:
@@ -272,7 +286,7 @@ def ask(prompt, default="", paths=False):
 
 
 def ask_folder(prompt):
-    print(dim("Type a path (Tab completes) or drag a folder from Finder into this window, then Enter."))
+    print(dim("Type a path (Tab completes where it can) or drag a folder into this window, then Enter."))
     print(dim("Leave empty to cancel."))
     return ask(prompt, paths=True)
 
@@ -303,9 +317,10 @@ def run_tool(name: str, args: list) -> int:
     """
     old = signal.signal(signal.SIGINT, signal.SIG_IGN)
     show_cursor(True)
+    # an ignored Ctrl-C is inherited by the child on macOS/Linux, so reset it there (Windows has no preexec_fn)
+    extra = {} if IS_WINDOWS else {"preexec_fn": lambda: signal.signal(signal.SIGINT, signal.SIG_DFL)}
     try:
-        return subprocess.call([sys.executable, str(HERE / SCRIPTS[name]), *args],
-                               preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL))
+        return subprocess.call([sys.executable, str(HERE / SCRIPTS[name]), *args], **extra)
     finally:
         signal.signal(signal.SIGINT, old)
 
@@ -313,7 +328,7 @@ def run_tool(name: str, args: list) -> int:
 def run_and_wait(name, args, config):
     clear()
     extra = ["--config", str(config)] if config else []
-    print(dim("$ " + " ".join(shlex.quote(a) for a in ["mt", name, *args])) + "\n")
+    print(dim("$ " + " ".join(shell_quote(a) for a in ["mt", name, *args])) + "\n")
     code = run_tool(name, extra + args)
     if code not in (0, None):
         print(red(f"\nFinished with exit code {code}."))
@@ -390,7 +405,7 @@ class App:
 
     def failed_count(self):
         try:
-            return len([l for l in FAILED_LIST.read_text().splitlines() if l.strip()])
+            return len([l for l in FAILED_LIST.read_text(encoding="utf-8").splitlines() if l.strip()])
         except OSError:
             return 0
 
@@ -462,7 +477,7 @@ class App:
             return
         clear()
         print(bold(f"{self.failed_count()} song(s) from last time:"))
-        for line in FAILED_LIST.read_text().splitlines()[:20]:
+        for line in FAILED_LIST.read_text(encoding="utf-8").splitlines()[:20]:
             print("  " + Path(line).name)
         pause("Press Enter to choose options")
         flags = self.art_options("Retry failed songs · options", "Retry", include_force=False)
@@ -827,8 +842,8 @@ class App:
             if choice == len(self.SETTINGS) + 1:
                 if not self.path.is_file():
                     self.save(cfg)
-                opener = ["open", "-t"] if sys.platform == "darwin" else ["xdg-open"]
-                subprocess.call([*opener, str(self.path)])
+                if not open_path(self.path, edit=True):
+                    flash(f"No program found to open it with. The settings file is {self.path}")
                 continue
             key, label, hint = self.SETTINGS[choice]
             current = self._get(cfg, key)
@@ -874,11 +889,21 @@ class App:
                 return
             if choice == len(rows) - 1:
                 LOG_DIR.mkdir(exist_ok=True)
-                subprocess.call(["open" if sys.platform == "darwin" else "xdg-open", str(LOG_DIR)])
+                if not open_path(LOG_DIR):
+                    flash(f"No program found to open it with. The logs are in {LOG_DIR}")
                 continue
             clear()
-            subprocess.call(["less", "-R", "+G", str(logs[choice])] if sys.stdout.isatty()
-                            else ["cat", str(logs[choice])])
+            self.show_log(logs[choice])
+
+    @staticmethod
+    def show_log(path):
+        pager = shutil.which("less")
+        if sys.stdout.isatty() and pager:
+            subprocess.call([pager, "-R", "+G", str(path)])
+            return
+        print(Path(path).read_text(encoding="utf-8", errors="replace"))
+        if sys.stdout.isatty():  # no pager (Windows): keep the text on screen until asked
+            pause()
 
     def help(self):
         clear()
@@ -887,7 +912,7 @@ class App:
 
 
 def run(config=None, help_text=""):
-    if sys.stdout.isatty():
+    if ANSI:
         sys.stdout.write("\x1b[?25l")  # hide the cursor in menus
     try:
         app = App(config)
@@ -896,7 +921,7 @@ def run(config=None, help_text=""):
     except KeyboardInterrupt:
         clear()
     finally:
-        if sys.stdout.isatty():
+        if ANSI:
             sys.stdout.write("\x1b[?25h")
             sys.stdout.flush()
     return 0

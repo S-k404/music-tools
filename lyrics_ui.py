@@ -6,10 +6,10 @@ import shutil
 import sys
 import threading
 
-from common import COLOR, bold, dim, fit, text_width, tqdm
+from common import ANSI, COLOR, bold, dim, fit, text_width, tqdm
 
 # The cat only moves on a real terminal; MUSIC_TOOLS_NO_ANIMATION=1 keeps it still, NO_COLOR=1 drops the colours.
-ANIMATE = sys.stdout.isatty() and not os.environ.get("MUSIC_TOOLS_NO_ANIMATION")
+ANIMATE = ANSI and not os.environ.get("MUSIC_TOOLS_NO_ANIMATION")
 
 _LETTERS = {
     "L": ("╦  ", "║  ", "╩═╝"), "Y": ("╦ ╦", "╚╦╝", " ╩ "), "R": ("╦═╗", "╠╦╝", "╩╚═"),

@@ -1,5 +1,6 @@
 import importlib.util
 import io
+import json
 import shutil
 import sys
 import tempfile
@@ -30,7 +31,7 @@ class HomesTests(unittest.TestCase):
             self.skipTest("this volume ignores case, so two spellings of one name can't both exist")
         for name in ("Radiohead", "A$ap Rocky", "A$AP Rocky", ".Trashes", "$RECYCLE.BIN", "Fred again.."):
             (self.dir / name).mkdir()
-        (self.dir / "stray.txt").write_text("x")
+        (self.dir / "stray.txt").write_text("x", encoding="utf-8")
         homes = artists.artist_homes(self.dir)
         self.assertEqual(homes[artists.name_key("Radiohead")], self.dir / "Radiohead")
         self.assertEqual(homes[artists.name_key("fred AGAIN")], self.dir / "Fred again..")   # same key as the folder
@@ -73,7 +74,7 @@ class PlacementRunTests(unittest.TestCase):
             (self.lib / song).parent.mkdir(parents=True, exist_ok=True)
             (self.lib / song).write_bytes(b"")
         self.config = self.dir / "c.toml"
-        self.config.write_text(f'music_dir = "{self.lib}"\nsave_logs = false\n')
+        self.config.write_text(f'music_dir = {json.dumps(str(self.lib))}\nsave_logs = false\n', encoding="utf-8")
 
     def run_tool(self, *argv):
         old = sys.argv
@@ -105,7 +106,7 @@ class PlacementRunTests(unittest.TestCase):
         self.assertFalse((self.lib / "Radiohead" / "artist.jpg").exists())
 
     def test_the_setting_in_the_config_works_too(self):
-        self.config.write_text(f'music_dir = "{self.lib}"\nsave_logs = false\n[artist_art]\nplacement = "artist_folder"\n')
+        self.config.write_text(f'music_dir = {json.dumps(str(self.lib))}\nsave_logs = false\n[artist_art]\nplacement = "artist_folder"\n', encoding="utf-8")
         self.run_tool()
         self.assertTrue((self.lib / "Radiohead" / "artist.jpg").is_file())
 

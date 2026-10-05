@@ -125,10 +125,10 @@ class ArtistLookupTests(unittest.TestCase):
     def patch_yt_dlp(self, run):
         """Run the real youtube_channels(), with a stand-in for the yt-dlp command."""
         artists.youtube_channels = self.old[2]
-        self.addCleanup(setattr, artists.shutil, "which", artists.shutil.which)
+        self.addCleanup(setattr, artists, "ytdlp_command", artists.ytdlp_command)
         self.addCleanup(setattr, artists.subprocess, "run", artists.subprocess.run)
         self.addCleanup(setattr, artists.YOUTUBE_GAVE_UP, "failures", 0)
-        artists.shutil.which = lambda name: "/usr/bin/yt-dlp"
+        artists.ytdlp_command = lambda: ["yt-dlp"]
         artists.subprocess.run = run
         artists.YOUTUBE_GAVE_UP.failures = 0
         self.addCleanup(setattr, artists.YOUTUBE_LIMIT, "gap", artists.YOUTUBE_LIMIT.gap)
@@ -192,9 +192,8 @@ class ArtistLookupTests(unittest.TestCase):
         self.assertEqual(artists.big_avatar([]), "")
 
     def test_youtube_channels_returns_nothing_without_yt_dlp(self):
-        old = artists.shutil.which
-        artists.shutil.which = lambda name: None
-        self.addCleanup(setattr, artists.shutil, "which", old)
+        self.addCleanup(setattr, artists, "ytdlp_command", artists.ytdlp_command)
+        artists.ytdlp_command = lambda: None
         self.assertEqual(artists.youtube_channels("Anyone"), [])
 
     def test_combination_is_looked_up_as_its_parts(self):
@@ -273,7 +272,7 @@ class ArtistLookupTests(unittest.TestCase):
         library.mkdir()
         (library / "Radiohead - Creep.mp3").write_bytes(b"")
         config = self.dir / "c.toml"
-        config.write_text(f'music_dir = "{library}"\nsave_logs = false\n')
+        config.write_text(f'music_dir = {json.dumps(str(library))}\nsave_logs = false\n', encoding="utf-8")
         out = library / "Artist Art" / "Radiohead.jpg"
 
         def run(*argv):
@@ -353,7 +352,7 @@ class MenuTests(unittest.TestCase):
             cwd=ROOT, capture_output=True, text=True)
         logs = list(tmp.glob("*_test.log"))
         self.assertEqual(len(logs), 1, out.stderr)
-        self.assertIn("hello log", logs[0].read_text())
+        self.assertIn("hello log", logs[0].read_text(encoding="utf-8"))
 
 
 class FolderMenuTests(unittest.TestCase):
@@ -365,7 +364,7 @@ class FolderMenuTests(unittest.TestCase):
         self.lib = self.dir / "lib"
         (self.lib / "Mixes").mkdir(parents=True)
         self.config = self.dir / "c.toml"
-        self.config.write_text(f'music_dir = "{self.lib}"\n')
+        self.config.write_text(f'music_dir = {json.dumps(str(self.lib))}\n', encoding="utf-8")
 
     def run_menu(self, method, *inputs):
         import common as common_mod
@@ -493,11 +492,11 @@ class CommandTests(unittest.TestCase):
 
     def test_bad_values_are_rejected_and_not_saved(self):
         self.run_cmd("set", "workers", "4")
-        before = self.config.read_text()
+        before = self.config.read_text(encoding="utf-8")
         for args in (("set", "workers", "lots"), ("set", "tags.title_mode", "nope"), ("set", "bogus", "1")):
             with self.subTest(args=args):
                 self.assertNotEqual(self.run_cmd(*args).returncode, 0)
-        self.assertEqual(self.config.read_text(), before)
+        self.assertEqual(self.config.read_text(encoding="utf-8"), before)
 
     def test_help_lists_all_tools(self):
         out = self.run_cmd("help").stdout
@@ -783,7 +782,7 @@ class FindLyricsTests(unittest.TestCase):
         song = library / "Artist - Title.mp3"
         song.write_bytes(b"")
         config = self.dir / "c.toml"
-        config.write_text(f'music_dir = "{library}"\nsave_logs = false\n')
+        config.write_text(f'music_dir = {json.dumps(str(library))}\nsave_logs = false\n', encoding="utf-8")
         lrc, html = library / "Artist - Title.lrc", library / "Artist - Title.html"
 
         def run(*argv):
@@ -799,12 +798,12 @@ class FindLyricsTests(unittest.TestCase):
         run()
         self.assertTrue(lrc.is_file())
         self.assertTrue(html.is_file())
-        self.assertIn("[00:01.00]안녕", lrc.read_text())
-        lrc.write_text("mine")
+        self.assertIn("[00:01.00]안녕", lrc.read_text(encoding="utf-8"))
+        lrc.write_text("mine", encoding="utf-8")
         run()
-        self.assertEqual(lrc.read_text(), "mine")  # not saved again without --force
+        self.assertEqual(lrc.read_text(encoding="utf-8"), "mine")  # not saved again without --force
         run("--force")
-        self.assertNotEqual(lrc.read_text(), "mine")
+        self.assertNotEqual(lrc.read_text(encoding="utf-8"), "mine")
 
     def test_unsynced_lyrics_skip_lrc_but_still_write_html(self):
         self.fake_fetch([Line(None, "no timing here")], synced=False)
@@ -814,7 +813,7 @@ class FindLyricsTests(unittest.TestCase):
         song = library / "Artist - Title.mp3"
         song.write_bytes(b"")
         config = self.dir / "c2.toml"
-        config.write_text(f'music_dir = "{library}"\nsave_logs = false\n')
+        config.write_text(f'music_dir = {json.dumps(str(library))}\nsave_logs = false\n', encoding="utf-8")
         old = sys.argv
         sys.argv = ["find_lyrics.py", "--config", str(config), "--no-progress", "--include-english"]
         try:

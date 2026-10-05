@@ -11,7 +11,10 @@ import ssl
 import json
 import os
 import re
+import shlex
+import shutil
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -43,6 +46,8 @@ except ImportError:  # progress bars are optional
     tqdm = None
 
 HERE = Path(__file__).resolve().parent
+IS_WINDOWS = sys.platform == "win32"
+IS_MAC = sys.platform == "darwin"
 
 DEFAULTS = {
     "music_dir": "~/Music",
@@ -194,6 +199,8 @@ def config_candidates(explicit=None):
     if os.environ.get("MUSIC_TOOLS_CONFIG"):
         yield Path(os.environ["MUSIC_TOOLS_CONFIG"]).expanduser()
     yield HERE / "config.toml"
+    if IS_WINDOWS and os.environ.get("APPDATA"):
+        yield Path(os.environ["APPDATA"]) / "music-tools" / "config.toml"
     yield Path("~/.config/music-tools/config.toml").expanduser()
 
 
@@ -350,6 +357,85 @@ def plural(n: int, word: str) -> str:
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
+# ---------------------------------------------------------------- the system around the tools
+_INSTALL_HINTS = {  # program -> (macOS, Windows, anything else)
+    "yt-dlp": ("brew install yt-dlp", "winget install yt-dlp.yt-dlp", "pip install yt-dlp"),
+    "ffmpeg": ("brew install ffmpeg", "winget install Gyan.FFmpeg", "sudo apt install ffmpeg, or your package manager's"),
+}
+
+
+def install_hint(program: str) -> str:
+    """How to install a command-line program on this system, for error messages."""
+    mac, windows, other = _INSTALL_HINTS[program]
+    return mac if IS_MAC else windows if IS_WINDOWS else other
+
+
+def ytdlp_command():
+    """
+    The command that runs yt-dlp, or None. A yt-dlp on PATH wins; otherwise the package that setup put in the
+    virtual environment is run as a module (its launcher sits in .venv/bin or .venv\\Scripts, which isn't on PATH).
+    """
+    found = shutil.which("yt-dlp")
+    if found:
+        return [found]
+    if importlib.util.find_spec("yt_dlp") is not None:
+        return [sys.executable, "-m", "yt_dlp"]
+    return None
+
+
+def subprocess_text() -> dict:
+    """subprocess.run() options that read a program's output as UTF-8 instead of the system's legacy code page."""
+    return {"capture_output": True, "text": True, "encoding": "utf-8", "errors": "replace"}
+
+
+def open_path(path, edit: bool = False) -> bool:
+    """
+    Open a file (in a text editor if `edit`) or a folder with the system's default program.
+    False if there is nothing to open it with, e.g. a server without a desktop.
+    """
+    try:
+        if IS_WINDOWS:
+            if edit:
+                return subprocess.call(["notepad", str(path)]) == 0
+            os.startfile(str(path))
+            return True
+        if IS_MAC:
+            return subprocess.call(["open", "-t", str(path)] if edit else ["open", str(path)]) == 0
+        return subprocess.call(["xdg-open", str(path)]) == 0
+    except OSError:
+        return False
+
+
+def clean_path(text: str) -> str:
+    """Accept a path typed, pasted, or dragged in from Finder / File Explorer (quoted, or with '\\ ' on macOS and Linux)."""
+    text = text.strip()
+    if not text:
+        return ""
+    if not IS_WINDOWS:  # there a backslash is the folder separator, not an escape
+        try:
+            parts = shlex.split(text)
+            text = parts[0] if len(parts) == 1 else text
+        except ValueError:
+            pass
+    return text.strip("'\"")
+
+
+def shell_quote(text: str) -> str:
+    """Quote one argument for the shell the user would paste it into (cmd/PowerShell on Windows, else sh)."""
+    return subprocess.list2cmdline([text]) if IS_WINDOWS else shlex.quote(text)
+
+
+_WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+
+
+def windows_safe(name: str) -> str:
+    """On Windows a file or folder can't be called CON, NUL, COM1... (with or without an extension): add an underscore."""
+    stem, dot, extension = name.partition(".")
+    if IS_WINDOWS and stem.rstrip().upper() in _WINDOWS_RESERVED:
+        return f"{stem}_{dot}{extension}"
+    return name
+
+
 def resolve(folder: str, music_dir: str) -> Path:
     """Folders in the config may be absolute or relative to music_dir."""
     p = Path(folder).expanduser()
@@ -434,7 +520,42 @@ def log(msg: str = ""):
 
 
 # ---------------------------------------------------------------- styling
-COLOR = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+def _prepare_streams() -> None:
+    """
+    Song titles come in every script, so printing one must never crash: a character the terminal can't show becomes
+    "?". On Windows, output that is piped or redirected would otherwise be cp1252, so it is UTF-8 there.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace", **({"encoding": "utf-8"} if IS_WINDOWS else {}))
+        except (AttributeError, ValueError, OSError):
+            pass  # not a real text stream (a test's StringIO, a closed pipe)
+
+
+def _enable_windows_ansi() -> bool:
+    """Turn on escape-code handling in a Windows console (Windows Terminal has it on already). False if it won't."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.WinDLL("kernel32")
+        kernel32.GetStdHandle.argtypes, kernel32.GetStdHandle.restype = [wintypes.DWORD], wintypes.HANDLE
+        kernel32.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        kernel32.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        ok = True
+        for handle_id in (-11, -12):  # stdout, stderr
+            handle = kernel32.GetStdHandle(handle_id)
+            mode = wintypes.DWORD()
+            if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):  # 0 when it's a pipe or file: nothing to do
+                ok = bool(kernel32.SetConsoleMode(handle, mode.value | 0x0004)) and ok  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        return ok
+    except Exception:
+        return False
+
+
+_prepare_streams()
+# ANSI: the terminal understands escape codes (cursor moves, clearing); COLOR: and the user hasn't asked for plain text
+ANSI = sys.stdout.isatty() and os.environ.get("TERM") != "dumb" and (not IS_WINDOWS or _enable_windows_ansi())
+COLOR = ANSI and not os.environ.get("NO_COLOR")
 
 
 def _c(code):

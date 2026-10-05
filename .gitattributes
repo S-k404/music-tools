@@ -1,0 +1,6 @@
+# Line endings: scripts that a shell or cmd.exe reads must keep theirs on every system.
+* text=auto
+*.sh text eol=lf
+music-tools text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf

@@ -43,13 +43,13 @@ class SidecarAndPlanTests(unittest.TestCase):
         song = self.source_dir / "Artist - Title.mp3"
         song.write_bytes(b"")
         lrc = self.source_dir / "Artist - Title.lrc"
-        lrc.write_text("[00:01.00]lyrics")
+        lrc.write_text("[00:01.00]lyrics", encoding="utf-8")
         html = self.source_dir / "Artist - Title.html"
-        html.write_text("<html></html>")
+        html.write_text("<html></html>", encoding="utf-8")
         bak = self.source_dir / "Artist - Title.lrc.bak"
-        bak.write_text("backup")
+        bak.write_text("backup", encoding="utf-8")
         unrelated = self.source_dir / "Other - Song.lrc"
-        unrelated.write_text("other")
+        unrelated.write_text("other", encoding="utf-8")
 
         sidecars = org.find_sidecars(song)
         self.assertEqual(len(sidecars), 3)
@@ -89,7 +89,7 @@ class SidecarAndPlanTests(unittest.TestCase):
         plan = org.plan_move(song, self.music_dir, fallback_album="Singles", resolved_album="Unknown", track_meta=meta)
         self.assertEqual(plan.album, "Singles")
         cache = Path(self.temp_dir) / "cache.json"
-        cache.write_text(json.dumps({"a // one": "Unknown", "a // two": "null", "a // three": "Real Album", "a // four": ""}))
+        cache.write_text(json.dumps({"a // one": "Unknown", "a // two": "null", "a // three": "Real Album", "a // four": ""}), encoding="utf-8")
         with mock.patch.object(org, "ALBUM_CACHE_FILE", cache):
             self.assertEqual(org.load_album_cache(), {"a // three": "Real Album", "a // four": ""})
 
@@ -117,7 +117,7 @@ class SidecarAndPlanTests(unittest.TestCase):
         song = self.source_dir / "Artist - Title.mp3"
         song.write_bytes(b"audio")
         lrc = self.source_dir / "Artist - Title.lrc"
-        lrc.write_text("lyrics")
+        lrc.write_text("lyrics", encoding="utf-8")
 
         plan = org.plan_move(song, self.music_dir, fallback_album="Singles")
         success = org.execute_plan(plan, dry_run=False)

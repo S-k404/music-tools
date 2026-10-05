@@ -44,7 +44,7 @@ from typing import Dict, List, Optional, Tuple
 
 from common import (HERE, STOP, bold, cyan, dim, find_audio, folder_problem, green,
                     heading, install_stop_handler, load_config, log, progress,
-                    red, require, resolve, section, start_log, yellow)
+                    red, require, resolve, section, start_log, windows_safe, yellow)
 
 require("mutagen")
 import mutagen
@@ -240,7 +240,7 @@ def sanitize_name(name: str, fallback: str = "Unknown") -> str:
     text = text.replace("/", "-").replace("\\", "-").replace(":", " - ")
     text = ILLEGAL_CHARS_RE.sub("", text)
     text = WHITESPACE_RE.sub(" ", text).strip(" ._-")
-    return text or fallback
+    return windows_safe(text or fallback)
 
 
 def is_placeholder(text: str) -> bool:

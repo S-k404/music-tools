@@ -2,9 +2,11 @@ name: tests
 on: [push, pull_request]
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
         python: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
@@ -12,6 +14,50 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           cache: pip
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install ffmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+      - name: Install ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg --no-progress -y
       - run: pip install -r requirements.txt
       - run: python -m unittest discover -s tests -v
+
+  # The setup script and the launcher are what a new user runs first, so run them for real on each system.
+  setup:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: setup.sh
+        if: runner.os != 'Windows'
+        run: ./setup.sh
+      - name: setup.bat
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: call setup.bat
+      - name: Launcher finds the virtual environment and runs a tool (macOS, Linux)
+        if: runner.os != 'Windows'
+        env:
+          MUSIC_DIR: ${{ runner.temp }}
+        run: |
+          ./music-tools help
+          ./music-tools set workers 3
+          ./music-tools check
+          .venv/bin/python -c "import common; assert common.ytdlp_command(), 'yt-dlp not found'"
+      - name: Launcher finds the virtual environment and runs a tool (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        env:
+          MUSIC_DIR: ${{ runner.temp }}
+        run: |
+          call mt.cmd help || exit /b 1
+          call mt.cmd set workers 3 || exit /b 1
+          call mt.cmd check || exit /b 1
+          .venv\Scripts\python.exe -c "import common; assert common.ytdlp_command(), 'yt-dlp not found'" || exit /b 1

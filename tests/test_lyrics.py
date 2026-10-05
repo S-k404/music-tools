@@ -3,6 +3,7 @@ ever changed without asking, nothing is half-saved, everything can be retried). 
 
 import contextlib
 import io
+import json
 import os
 import shutil
 import importlib.util
@@ -357,9 +358,9 @@ class LocalLyricsTests(unittest.TestCase):
     def test_a_lrc_written_by_music_tools_is_not_a_source_of_lyrics(self):
         song = self.dir / "a.mp3"
         song.write_bytes(b"")
-        (self.dir / "a.lrc").write_text(render_lrc([Line(1.0, "x", english="y"), Line(2.0, "z")], "T", "A"))
+        (self.dir / "a.lrc").write_text(render_lrc([Line(1.0, "x", english="y"), Line(2.0, "z")], "T", "A"), encoding="utf-8")
         self.assertIsNone(lyrics_local.local_lyrics(song))
-        (self.dir / "a.lrc").write_text("[00:01.00]mine\n[00:02.00]too\n")
+        (self.dir / "a.lrc").write_text("[00:01.00]mine\n[00:02.00]too\n", encoding="utf-8")
         self.assertEqual(lyrics_local.local_lyrics(song).lines[0].text, "mine")
 
     def test_lyrics_stored_in_the_tags_are_found(self):
@@ -425,7 +426,7 @@ class ToolSafetyTests(unittest.TestCase):
         self.lib = self.dir / "lib"
         self.lib.mkdir()
         self.config = self.dir / "c.toml"
-        self.config.write_text(f'music_dir = "{self.lib}"\nsave_logs = false\n')
+        self.config.write_text(f'music_dir = {json.dumps(str(self.lib))}\nsave_logs = false\n', encoding="utf-8")
         self.fetches = 0
 
     def song(self, name="Artist - Title.mp3"):
@@ -487,11 +488,11 @@ class ToolSafetyTests(unittest.TestCase):
     def test_a_lrc_you_made_is_not_changed_without_asking(self):
         song = self.song()
         mine = "[00:01.00]안녕\n[00:03.00]사랑해\n"
-        (self.lib / "Artist - Title.lrc").write_text(mine)
+        (self.lib / "Artist - Title.lrc").write_text(mine, encoding="utf-8")
         self.translator("ko")
         self.lyrics([], error=lyrics_fetch.NotFound("nothing"))
         out = self.run_tool()
-        self.assertEqual((self.lib / "Artist - Title.lrc").read_text(), mine)
+        self.assertEqual((self.lib / "Artist - Title.lrc").read_text(encoding="utf-8"), mine)
         self.assertFalse((self.lib / "Artist - Title.lrc.bak").exists())
         self.assertTrue((self.lib / "Artist - Title.html").is_file())   # the page is new, so it's fine
         self.assertIn("left as", out)
@@ -502,43 +503,43 @@ class ToolSafetyTests(unittest.TestCase):
         self.song()
         mine = "[00:01.00]안녕\n[00:03.00]사랑해\n"
         target = self.lib / "Artist - Title.lrc"
-        target.write_text(mine)
+        target.write_text(mine, encoding="utf-8")
         self.translator("ko")
         self.lyrics([], error=lyrics_fetch.NotFound("nothing"))
         self.run_tool("--yes")
-        text = target.read_text()
+        text = target.read_text(encoding="utf-8")
         self.assertIn("[00:01.00]안녕\n[00:01.00]annyeong\n[00:01.00]EN:안녕", text)
         self.assertIn("[by:music-tools", text)
-        self.assertEqual((self.lib / "Artist - Title.lrc.bak").read_text(), mine)
+        self.assertEqual((self.lib / "Artist - Title.lrc.bak").read_text(encoding="utf-8"), mine)
         self.run_tool("--yes")   # running again doesn't pile up backups or re-translate a finished song
-        self.assertEqual((self.lib / "Artist - Title.lrc.bak").read_text(), mine)
+        self.assertEqual((self.lib / "Artist - Title.lrc.bak").read_text(encoding="utf-8"), mine)
 
     def test_backup_dir_collects_bak_files_in_one_place_mirroring_the_library(self):
         self.song("Artist - Title.mp3")
         mine = "[00:01.00]안녕\n[00:03.00]사랑해\n"
         target = self.lib / "Artist - Title.lrc"
-        target.write_text(mine)
+        target.write_text(mine, encoding="utf-8")
         backups = self.dir / "backups"
         self.config.write_text(
-            f'music_dir = "{self.lib}"\nsave_logs = false\n\n[lyrics]\nbackup_dir = "{backups}"\n')
+            f'music_dir = {json.dumps(str(self.lib))}\nsave_logs = false\n\n[lyrics]\nbackup_dir = {json.dumps(str(backups))}\n', encoding="utf-8")
         self.translator("ko")
         self.lyrics([], error=lyrics_fetch.NotFound("nothing"))
         self.run_tool("--yes")
         self.assertFalse((self.lib / "Artist - Title.lrc.bak").exists())   # not scattered into the library
-        self.assertEqual((backups / "Artist - Title.lrc.bak").read_text(), mine)
-        self.assertNotEqual(target.read_text(), mine)   # the translation was still added to the .lrc itself
+        self.assertEqual((backups / "Artist - Title.lrc.bak").read_text(encoding="utf-8"), mine)
+        self.assertNotEqual(target.read_text(encoding="utf-8"), mine)   # the translation was still added to the .lrc itself
 
     def test_restore_lrc_puts_your_original_back_and_removes_the_backup(self):
         self.song("Artist - Title.mp3")
         mine = "[00:01.00]안녕\n[00:03.00]사랑해\n"
         target = self.lib / "Artist - Title.lrc"
-        target.write_text(mine)
+        target.write_text(mine, encoding="utf-8")
         self.translator("ko")
         self.lyrics([], error=lyrics_fetch.NotFound("nothing"))
         self.run_tool("--yes")
-        self.assertNotEqual(target.read_text(), mine)   # the translation was added
+        self.assertNotEqual(target.read_text(encoding="utf-8"), mine)   # the translation was added
         out = self.run_tool("--restore-lrc")
-        self.assertEqual(target.read_text(), mine)
+        self.assertEqual(target.read_text(encoding="utf-8"), mine)
         self.assertFalse((self.lib / "Artist - Title.lrc.bak").exists())
         self.assertIn("Artist - Title.lrc", out)
 
@@ -546,13 +547,13 @@ class ToolSafetyTests(unittest.TestCase):
         self.song("Artist - Title.mp3")
         mine = "[00:01.00]안녕\n[00:03.00]사랑해\n"
         target = self.lib / "Artist - Title.lrc"
-        target.write_text(mine)
+        target.write_text(mine, encoding="utf-8")
         self.translator("ko")
         self.lyrics([], error=lyrics_fetch.NotFound("nothing"))
         self.run_tool("--yes")
-        translated = target.read_text()
+        translated = target.read_text(encoding="utf-8")
         self.run_tool("--restore-lrc", "--dry-run")
-        self.assertEqual(target.read_text(), translated)   # unchanged
+        self.assertEqual(target.read_text(encoding="utf-8"), translated)   # unchanged
         self.assertTrue((self.lib / "Artist - Title.lrc.bak").exists())   # backup still there
 
     def test_only_foreign_songs_are_saved_by_default(self):
@@ -584,10 +585,10 @@ class ToolSafetyTests(unittest.TestCase):
         self.translator("ja")   # what a service says about romaji: Japanese
         out = self.run_tool()
         self.assertEqual(self.sources, ["ja-romanized"])
-        lrc = (self.lib / "Artist - Title.lrc").read_text()
+        lrc = (self.lib / "Artist - Title.lrc").read_text(encoding="utf-8")
         self.assertIn("[00:01.00]Yume naraba dore hodo yokatta deshou\n[00:01.00]EN:Yume naraba dore hodo yokatta deshou", lrc)
         self.assertNotIn("annyeong", lrc)
-        page = (self.lib / "Artist - Title.html").read_text()
+        page = (self.lib / "Artist - Title.html").read_text(encoding="utf-8")
         self.assertIn('lang="ja-Latn"', page)
         self.assertIn("(romanized)", page)
         self.assertIn("from romanized text", out)
@@ -616,7 +617,7 @@ class ToolSafetyTests(unittest.TestCase):
         self.translator("ko", names=("google", "claude"))
         self.run_tool()
         self.assertEqual(self.sources, ["ko-romanized"])
-        self.assertIn("EN:saranghandaneun marieyo", (self.lib / "Artist - Title.lrc").read_text())
+        self.assertIn("EN:saranghandaneun marieyo", (self.lib / "Artist - Title.lrc").read_text(encoding="utf-8"))
 
     def test_romanized_russian_needs_claude_and_says_so(self):
         self.song()
@@ -632,7 +633,7 @@ class ToolSafetyTests(unittest.TestCase):
         self.translator("ru", names=("google", "claude"))
         self.run_tool()
         self.assertEqual(self.sources, ["ru-romanized"])
-        self.assertIn("EN:ya tebya lyublyu", (self.lib / "Artist - Title.lrc").read_text())
+        self.assertIn("EN:ya tebya lyublyu", (self.lib / "Artist - Title.lrc").read_text(encoding="utf-8"))
 
     def test_translation_being_down_still_saves_the_original_and_romanization_and_english_follows(self):
         song = self.song()
@@ -640,14 +641,14 @@ class ToolSafetyTests(unittest.TestCase):
         self.translator("ko", fail=TranslateError("google: busy"))
         out = self.run_tool()
         page = self.lib / "Artist - Title.html"
-        self.assertIn("annyeong", page.read_text())
-        self.assertNotIn("EN:", page.read_text())
+        self.assertIn("annyeong", page.read_text(encoding="utf-8"))
+        self.assertNotIn("EN:", page.read_text(encoding="utf-8"))
         self.assertIn("English still to come", out)
         self.assertFalse(find_lyrics.has_lyrics(song, ["lrc", "html"], find_lyrics.load_checked()))
         self.translator("ko")   # the services are back: the same command finishes the job, replacing our own files
         self.run_tool()
-        self.assertIn("EN:안녕", page.read_text())
-        self.assertIn("EN:안녕", (self.lib / "Artist - Title.lrc").read_text())
+        self.assertIn("EN:안녕", page.read_text(encoding="utf-8"))
+        self.assertIn("EN:안녕", (self.lib / "Artist - Title.lrc").read_text(encoding="utf-8"))
         self.assertTrue(find_lyrics.has_lyrics(song, ["lrc", "html"], find_lyrics.load_checked()))
 
     def test_with_no_romanization_a_failed_translation_saves_nothing(self):
@@ -693,7 +694,7 @@ class ToolSafetyTests(unittest.TestCase):
         self.translator("ko")
         self.run_tool("--formats", "lrc,txt,html")
         theirs = self.lib / "notes.txt"
-        theirs.write_text("my notes")
+        theirs.write_text("my notes", encoding="utf-8")
 
         def boom(*a, **k):
             raise AssertionError("no lookups allowed")
@@ -707,15 +708,15 @@ class ToolSafetyTests(unittest.TestCase):
         find_lyrics.fetch = boom
         find_lyrics.Translator = NoLookups
         self.run_tool("--relayer", "--layers", "original,english", "--formats", "lrc,txt,html")
-        lrc = (self.lib / "Artist - Title.lrc").read_text()
+        lrc = (self.lib / "Artist - Title.lrc").read_text(encoding="utf-8")
         self.assertIn("EN:안녕", lrc)
         self.assertNotIn("annyeong", lrc)
-        self.assertNotIn("annyeong", (self.lib / "Artist - Title.txt").read_text())
-        self.assertEqual(theirs.read_text(), "my notes")
+        self.assertNotIn("annyeong", (self.lib / "Artist - Title.txt").read_text(encoding="utf-8"))
+        self.assertEqual(theirs.read_text(encoding="utf-8"), "my notes")
 
     def test_a_folder_that_cant_be_written_is_reported_and_leaves_nothing_behind(self):
-        if os.geteuid() == 0:
-            self.skipTest("root can write anywhere")
+        if sys.platform == "win32" or os.geteuid() == 0:
+            self.skipTest("needs a folder that can be made read-only (not Windows, not root)")
         self.song()
         self.lyrics(self.KOREAN)
         self.translator("ko")
@@ -730,7 +731,7 @@ class ToolSafetyTests(unittest.TestCase):
             with self.subTest(name=name):
                 song = self.song(name)
                 for ext in (".lrc", ".html"):
-                    (self.lib / (song.stem + ext)).write_text("x")
+                    (self.lib / (song.stem + ext)).write_text("x", encoding="utf-8")
                 self.assertTrue(find_lyrics.has_lyrics(song, ["lrc", "html"]))
                 self.assertEqual({p.name for p in find_lyrics.existing_outputs(song, ["lrc", "html"]).values()},
                                  {song.stem + ".lrc", song.stem + ".html"})
@@ -742,7 +743,7 @@ class ToolSafetyTests(unittest.TestCase):
     def test_folder_problem_explains_a_macos_privacy_block(self):
         self.assertEqual(common.folder_problem(self.lib), "")
         self.assertIn("isn't connected", common.folder_problem("/Volumes/NoSuchDrive-xyz/Music"))
-        if os.geteuid() != 0:
+        if sys.platform != "win32" and os.geteuid() != 0:
             self.lib.chmod(0o000)
             self.addCleanup(self.lib.chmod, 0o755)
             self.assertIn("Removable Volumes", common.folder_problem(self.lib))
