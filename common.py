@@ -293,6 +293,7 @@ _connections = threading.local()
 _STALE = (http.client.RemoteDisconnected, http.client.CannotSendRequest, http.client.ImproperConnectionState,
           BrokenPipeError, ConnectionResetError, ConnectionAbortedError, ssl.SSLEOFError)
 _REDIRECTS = (301, 302, 303, 307, 308)
+_WSAENOTSOCK = 10038  # Windows' "not a socket", what a closed socket gives there (macOS and Linux give EBADF)
 
 
 @functools.lru_cache(maxsize=None)
@@ -339,7 +340,8 @@ def fetch_url(url: str, data=None, headers=None, timeout: float = 20, max_bytes:
                 _drop_connection(key)  # the rest of the body is still on the wire
         except (OSError, http.client.HTTPException) as e:
             _drop_connection(key)
-            stale = isinstance(e, _STALE) or getattr(e, "errno", None) == errno.EBADF
+            stale = isinstance(e, _STALE) or getattr(e, "errno", None) in (errno.EBADF, _WSAENOTSOCK) \
+                or getattr(e, "winerror", None) == _WSAENOTSOCK
             if stale and reused and attempt == 0:
                 continue  # the server closed an idle connection; one fresh try
             raise urllib.error.URLError(e) from e

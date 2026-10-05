@@ -337,6 +337,7 @@ class ArtistLookupTests(unittest.TestCase):
 
 
 class MenuTests(unittest.TestCase):
+    @unittest.skipIf(sys.platform == "win32", "backslash escapes are a macOS/Linux thing; test_platform covers Windows paths")
     def test_dragged_and_quoted_paths(self):
         import interactive
         self.assertEqual(interactive.clean_path("/Volumes/My\\ Drive/Music\\ Mix "), "/Volumes/My Drive/Music Mix")

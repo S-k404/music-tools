@@ -18,9 +18,9 @@ def snapshot(root: Path) -> dict:
     out = {}
     for cur, dnames, fnames in os.walk(root):
         for d in dnames:
-            out[str(Path(cur, d).relative_to(root)) + "/"] = ""
+            out[Path(cur, d).relative_to(root).as_posix() + "/"] = ""
         for f in fnames:
-            out[str(Path(cur, f).relative_to(root))] = hashlib.sha1(Path(cur, f).read_bytes()).hexdigest()
+            out[Path(cur, f).relative_to(root).as_posix()] = hashlib.sha1(Path(cur, f).read_bytes()).hexdigest()
     return out
 
 
