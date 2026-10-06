@@ -16,6 +16,70 @@ sys.path.insert(0, str(ROOT))
 import interactive  # noqa: E402
 
 
+class RenderTests(unittest.TestCase):
+    """A menu has to fit the window: long lines are cut, tall lists scroll with the cursor."""
+
+    def test_a_short_line_is_left_alone_and_a_long_one_is_cut_with_an_ellipsis(self):
+        self.assertEqual(interactive._fit_line("short", 20), "short")
+        cut = interactive._fit_line("x" * 50, 20)
+        self.assertEqual(interactive._shown_len(cut.replace("\x1b[0m", "")), 20)
+        self.assertIn("…", cut)
+
+    def test_colour_codes_do_not_count_and_survive_the_cut(self):
+        line = interactive.green("[x]") + " " + interactive.dim("a long hint that will not fit on the line")
+        cut = interactive._fit_line(line, 12)
+        self.assertLessEqual(interactive._shown_len(cut), 12)
+        self.assertTrue(cut.startswith(interactive.green("[x]")))
+        self.assertEqual(interactive._fit_line(line, 200), line)
+
+    def test_wide_characters_count_double(self):
+        cut = interactive._fit_line("歌" * 20, 11)
+        self.assertLessEqual(interactive._shown_len(cut.replace("\x1b[0m", "")), 11)
+
+    def test_window_keeps_the_cursor_in_view(self):
+        self.assertEqual(interactive._window(5, 4, 10), (0, 5))
+        for cursor in range(30):
+            first, last = interactive._window(30, cursor, 8)
+            self.assertEqual(last - first, 8)
+            self.assertTrue(first <= cursor < last, cursor)
+        self.assertEqual(interactive._window(30, 0, 8), (0, 8))
+        self.assertEqual(interactive._window(30, 29, 8), (22, 30))
+
+    def render(self, rows, cursor, columns=80, lines=24, header=()):
+        import io
+        from contextlib import redirect_stdout
+        out = io.StringIO()
+        size = mock.Mock(columns=columns, lines=lines)
+        with mock.patch.object(interactive.shutil, "get_terminal_size", return_value=size), \
+                mock.patch.object(interactive, "ANSI", False), redirect_stdout(out):
+            interactive._render("Title", list(header), rows, cursor, "footer")
+        return out.getvalue().split("\n")
+
+    def test_every_rendered_line_fits_the_window_width(self):
+        rows = [("A label that is rather long indeed", "and a hint that is far, far longer than the screen is wide " * 2)] * 3
+        shown = self.render(rows, 0, columns=60, header=["Music folder  /Volumes/" + "x" * 90])
+        self.assertTrue(all(interactive._shown_len(line) <= 59 for line in shown), shown)
+
+    def test_a_tall_list_scrolls_and_says_how_many_are_hidden(self):
+        rows = [(f"row {i}", "") for i in range(40)]
+        top = self.render(rows, 0, lines=24)
+        self.assertLessEqual(len(top), 24)
+        self.assertTrue(any("row 0" in line for line in top))
+        self.assertFalse(any("row 39" in line for line in top))
+        self.assertTrue(any("↓" in line and "more" in line for line in top))
+        bottom = self.render(rows, 39, lines=24)
+        self.assertLessEqual(len(bottom), 24)
+        self.assertTrue(any("row 39" in line for line in bottom))
+        self.assertTrue(any("↑" in line and "more" in line for line in bottom))
+        middle = self.render(rows, 20, lines=24)
+        self.assertTrue(any("row 20" in line for line in middle))
+        self.assertTrue(any("↑" in line for line in middle) and any("↓" in line for line in middle))
+
+    def test_a_short_list_does_not_scroll(self):
+        shown = self.render([(f"row {i}", "") for i in range(5)], 2)
+        self.assertFalse(any("more" in line for line in shown))
+
+
 class MenuCase(unittest.TestCase):
     """A real App on a temporary config, with the things a screen runs recorded instead of run."""
 
