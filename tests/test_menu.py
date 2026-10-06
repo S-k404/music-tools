@@ -134,12 +134,13 @@ class MenuTests(MenuCase):
         self.assertEqual(self.runs, [("run_and_wait", "all", [], str(self.config))])
 
     def test_tidy_screen_rows(self):
-        for name in ("layout", "duplicates", "organize", "fix_tags"):
+        for name in ("layout", "duplicates", "pick_duplicates", "organize", "fix_tags"):
             setattr(self.app, name, mock.Mock(name=name))
-        shown = self.drive(self.app.tidy, 0, 1, 2, 3, 4)
+        shown = self.drive(self.app.tidy, 0, 1, 2, 3, 4, 5)
         self.assertEqual(shown[0][1], ["Clean up junk and duplicate folders", "Remove duplicate songs",
-                                       "Sort songs into Artist/Album folders", "Fix wrong tags", "Undo the last tidy"])
-        for name in ("layout", "duplicates", "organize", "fix_tags"):
+                                       "Choose which duplicate songs to delete", "Sort songs into Artist/Album folders",
+                                       "Fix wrong tags", "Undo the last tidy"])
+        for name in ("layout", "duplicates", "pick_duplicates", "organize", "fix_tags"):
             getattr(self.app, name).assert_called_once_with()
         self.assertEqual(self.runs, [("run_and_wait", "layout", ["--undo", "--apply"], str(self.config))])
 
@@ -172,6 +173,21 @@ class MenuTests(MenuCase):
     def test_going_back_from_a_scope_question_runs_nothing(self):
         with mock.patch.object(self.app, "pick_scope", return_value=None):
             self.drive(self.app.check, 2, 3, 4)
+        self.assertEqual(self.runs, [])
+
+
+class PickDuplicatesTests(MenuCase):
+    def test_it_runs_the_picker_on_the_chosen_folders(self):
+        with mock.patch.object(self.app, "pick_scope", return_value=[]):
+            self.app.pick_duplicates()
+        with mock.patch.object(self.app, "pick_scope", return_value=["/Music/Mixes"]):
+            self.app.pick_duplicates()
+        self.assertEqual([r[1:3] for r in self.runs],
+                         [("duplicates", ["--pick"]), ("duplicates", ["/Music/Mixes", "--pick"])])
+
+    def test_backing_out_of_the_folder_question_runs_nothing(self):
+        with mock.patch.object(self.app, "pick_scope", return_value=None):
+            self.app.pick_duplicates()
         self.assertEqual(self.runs, [])
 
 

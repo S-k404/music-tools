@@ -144,6 +144,8 @@ DUPLICATES  (find_duplicates.py)  — only reports unless you add --delete-stray
   {PROG} duplicates --delete-strays --apply
                                      remove them with their lyrics/cover files (Trash on a Mac, deleted elsewhere);
                                      asks first, --yes skips the question
+  {PROG} duplicates --pick            list every copy of every duplicate song and tick the ones to remove yourself
+                                     (at least one copy of each song always stays; asks before removing)
 
 ORGANIZER  (organize_music.py)  — sort songs into Artist/Album/ folders for Jellyfin
   {PROG} organize                     sort songs into Artist/Album/ folders
