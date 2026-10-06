@@ -52,6 +52,7 @@ from mutagen import File as MutagenFile
 
 from fix_album_art import AUDIO_EXTS, UNSUPPORTED_EXTS, clean_text
 from fix_misidentified_tags import parse_filename
+from library_layout import album_key   # the same idea of "this is the same album" that `mt tidy` uses
 
 # Characters not allowed in folder or file names on macOS, Linux, and Windows
 ILLEGAL_CHARS_RE = re.compile(r'[\x00-\x1f\x7f/\\:\*\?"<>\|]')
@@ -60,6 +61,10 @@ WHITESPACE_RE = re.compile(r'\s+')
 PLACEHOLDER_NAMES = {"unknown", "unknown album", "unknown artist", "null", "none", "n/a", "na", "nan", "<unknown>",
                      "untitled"}
 SIDECAR_EXTS = {".lrc", ".bak", ".html", ".txt", ".jpg", ".jpeg", ".png", ".webp", ".nfo"}
+# Linux and macOS allow 255 bytes in one name, and the file name itself needs room too, so a folder name that a
+# messy tag made huge is cut here instead of failing with "File name too long"
+MAX_NAME_BYTES = 200
+EDITION_RE = re.compile(r"\s+(?:deluxe|expanded|remaster(?:ed)?|bonus(?:\s+tracks?)?)\b", re.IGNORECASE)
 COMMON_IMAGES = {"folder.jpg", "cover.jpg", "artist.jpg", "album.jpg", "thumb.jpg"}
 ALBUM_CACHE_FILE = HERE / "album_cache.json"
 
@@ -240,6 +245,8 @@ def sanitize_name(name: str, fallback: str = "Unknown") -> str:
     text = text.replace("/", "-").replace("\\", "-").replace(":", " - ")
     text = ILLEGAL_CHARS_RE.sub("", text)
     text = WHITESPACE_RE.sub(" ", text).strip(" ._-")
+    if len(text.encode("utf-8")) > MAX_NAME_BYTES:
+        text = text.encode("utf-8")[:MAX_NAME_BYTES].decode("utf-8", "ignore").strip(" ._-")
     return windows_safe(text or fallback)
 
 
@@ -331,6 +338,7 @@ class MovePlan:
     is_noop: bool = False
     auto_album: bool = False
     error: str = ""
+    warnings: List[str] = field(default_factory=list)   # companion files left behind (the song itself moved)
 
 
 def match_existing_dir(parent: Path, name: str) -> Path:
@@ -346,37 +354,56 @@ def match_existing_dir(parent: Path, name: str) -> Path:
     return parent / name
 
 
+def album_identity(name: str, artist: str = "") -> str:
+    """What makes two album folder names the same album: case, punctuation, quote and dash styles, a leading
+    "Artist - ", a trailing "- EP", and bracketed or "Deluxe" additions are all ignored. "" = nothing to compare."""
+    base = re.sub(r'[\(\[\{].*?[\)\]\}]', '', unicodedata.normalize("NFKC", name)).strip()
+    base = EDITION_RE.sub('', base).strip()
+    return album_key(base, artist) or album_key(name, artist)
+
+
+def _audio_count(folder: Path) -> int:
+    try:
+        return sum(1 for f in folder.iterdir() if f.suffix.lower() in AUDIO_EXTS | UNSUPPORTED_EXTS)
+    except OSError:
+        return 0
+
+
 def match_existing_album_dir(artist_dir: Path, album_name: str) -> Path:
     """
-    Find matching album subfolder inside artist_dir.
+    Find the album subfolder inside artist_dir this album already lives in, so a song never starts a second folder
+    for an album that has one (that is what `mt tidy` merges, so the organizer must not recreate them).
     1. Exact match (case-insensitive + Unicode NFKC).
-    2. Base name match: e.g. 'OK Computer' matches existing 'OK Computer (Deluxe Edition)'
-       or 'OK Computer (Collector's Edition)' matches existing 'OK Computer'.
+    2. The same album written another way: 'TIMELY!!' / 'Timely', 'WE DON'T TRUST YOU' with a curly or straight
+       apostrophe, 'SUGAR RUSH' / 'Sugar Rush - EP', a dash or a hyphen, 'OK Computer' / 'OK Computer (Deluxe)'.
+       When several folders qualify, the one with the most songs wins, like in `mt tidy`.
     """
     if not artist_dir.is_dir() or not album_name:
         return artist_dir / album_name
 
     norm_target = unicodedata.normalize("NFKC", album_name).lower()
-    base_target = re.sub(r'[\(\[\{].*?[\)\]\}]', '', norm_target).strip()
-    base_target = re.sub(r'\s+(?:deluxe|expanded|remaster(?:ed)?|bonus(?:\s+tracks?)?)\b', '', base_target, flags=re.IGNORECASE).strip()
-
-    fuzzy_match = None
+    target_id = album_identity(album_name, artist_dir.name)
+    same_album = []
     try:
         for entry in artist_dir.iterdir():
             if not entry.is_dir():
                 continue
-            entry_norm = unicodedata.normalize("NFKC", entry.name).lower()
-            if entry_norm == norm_target:
+            if unicodedata.normalize("NFKC", entry.name).lower() == norm_target:
                 return entry  # Exact match!
-            if base_target and len(base_target) >= 3:
-                entry_base = re.sub(r'[\(\[\{].*?[\)\]\}]', '', entry_norm).strip()
-                entry_base = re.sub(r'\s+(?:deluxe|expanded|remaster(?:ed)?|bonus(?:\s+tracks?)?)\b', '', entry_base, flags=re.IGNORECASE).strip()
-                if entry_base == base_target:
-                    fuzzy_match = entry
+            if target_id and len(target_id) >= 3 and album_identity(entry.name, artist_dir.name) == target_id:
+                same_album.append(entry)
     except OSError:
         pass
 
-    return fuzzy_match or (artist_dir / album_name)
+    if same_album:
+        return min(same_album, key=lambda e: (-_audio_count(e), len(e.name), e.name))
+    return artist_dir / album_name
+
+
+def _claimed_key(path: Path) -> str:
+    """A destination as the file system sees it: Unicode-normalised and case-folded, because the default macOS
+    and Windows file systems treat 'Song.mp3' and 'song.mp3' (or an NFD and an NFC name) as one file."""
+    return unicodedata.normalize("NFC", str(path)).casefold()
 
 
 def plan_move(
@@ -388,6 +415,7 @@ def plan_move(
     planned_albums: Optional[Dict[str, Dict[str, str]]] = None,
     resolved_album: Optional[str] = None,
     track_meta: Optional[dict] = None,
+    claimed: Optional[set] = None,
 ) -> MovePlan:
     """Determine destination paths for the audio file and its sidecars."""
     meta = track_meta if track_meta is not None else read_track_meta(audio_path)
@@ -425,8 +453,7 @@ def plan_move(
             safe_album = dest_dir.name
         elif planned_albums is not None:
             norm_a = unicodedata.normalize("NFKC", safe_artist).lower()
-            base_alb = re.sub(r'[\(\[\{].*?[\)\]\}]', '', unicodedata.normalize("NFKC", safe_album).lower()).strip()
-            base_alb = re.sub(r'\s+(?:deluxe|expanded|remaster(?:ed)?|bonus(?:\s+tracks?)?)\b', '', base_alb, flags=re.IGNORECASE).strip() or safe_album.lower()
+            base_alb = album_identity(safe_album, safe_artist) or safe_album.lower()
             artist_plans = planned_albums.setdefault(norm_a, {})
             if base_alb in artist_plans:
                 safe_album = artist_plans[base_alb]
@@ -453,13 +480,18 @@ def plan_move(
         except (OSError, ValueError):
             pass
 
-    if not is_noop and dest_audio.exists():
+    # A different file at the destination, or one an earlier song in this same run is already going to: take a
+    # free name instead. (Plans are all made before anything moves, so "does it exist yet?" alone would let two
+    # same-named songs pick the same destination and the second would replace the first.)
+    if not is_noop and (dest_audio.exists() or _claimed_key(dest_audio) in (claimed or ())):
         counter = 2
         stem = audio_path.stem
         ext = audio_path.suffix
-        while dest_audio.exists():
+        while dest_audio.exists() or _claimed_key(dest_audio) in (claimed or ()):
             dest_audio = dest_dir / f"{stem} ({counter}){ext}"
             counter += 1
+    if claimed is not None:
+        claimed.add(_claimed_key(dest_audio))
 
     # Plan sidecar moves to match the new destination stem
     sidecar_moves = []
@@ -483,23 +515,41 @@ def plan_move(
 
 
 def execute_plan(plan: MovePlan, dry_run: bool = False) -> bool:
-    """Execute the file movements in a plan. Returns True on success."""
+    """Execute the file movements in a plan. Returns True when the song moved. Never replaces a file that is
+    already there: the song is left where it is and reported. A lyrics or cover file that can't move is left
+    behind with a warning (the song itself still counts as moved)."""
     if plan.is_noop:
         return True
     if dry_run:
         return True
 
     dest_dir = plan.dest_audio.parent
+    if os.path.lexists(plan.dest_audio):   # planned as free, taken since: don't replace it
+        plan.error = f"{plan.dest_audio.name} already exists there, so this song was left where it is"
+        return False
     try:
         dest_dir.mkdir(parents=True, exist_ok=True)
         shutil.move(str(plan.source_audio), str(plan.dest_audio))
-        for src_s, dst_s in plan.sidecars:
-            if src_s.exists():
-                shutil.move(str(src_s), str(dst_s))
-        return True
     except OSError as e:
-        plan.error = str(e)
+        plan.error = e.strerror or str(e)
+        # a copy that stopped half way (disk full, drive unplugged) must not be mistaken for the song
+        if plan.source_audio.exists() and plan.dest_audio.exists():
+            try:
+                plan.dest_audio.unlink()
+            except OSError:
+                pass
         return False
+    for src_s, dst_s in plan.sidecars:
+        if not src_s.exists():
+            continue
+        if os.path.lexists(dst_s):
+            plan.warnings.append(f"{src_s.name} stays: {dst_s.name} is already in the new folder")
+            continue
+        try:
+            shutil.move(str(src_s), str(dst_s))
+        except OSError as e:
+            plan.warnings.append(f"{src_s.name} stays: {e.strerror or e}")
+    return True
 
 
 def copy_jellyfin_artist_art(music_dir: Path, artist_name: str, artist_art_dir: Path, dry_run: bool = False) -> bool:
@@ -650,6 +700,7 @@ def main(argv: list = None) -> int:
     source_dirs = set()
     planned_dirs: Dict[str, str] = {}
     planned_albums: Dict[str, Dict[str, str]] = {}
+    claimed: set = set()   # destinations already taken by an earlier song in this run
 
     for path, meta in progress(parsed_files, len(parsed_files), "Checking destinations", args.no_progress):
         if STOP.is_set():
@@ -667,6 +718,7 @@ def main(argv: list = None) -> int:
             planned_albums=planned_albums,
             resolved_album=found_album,
             track_meta=meta,
+            claimed=claimed,
         )
         plans.append(plan)
         if not plan.is_noop:
@@ -675,6 +727,7 @@ def main(argv: list = None) -> int:
     moved_count = 0
     noop_count = 0
     err_count = 0
+    warn_count = 0
     artists_seen = set()
 
     for plan in progress(plans, len(plans), "Organizing files", args.no_progress):
@@ -703,7 +756,11 @@ def main(argv: list = None) -> int:
             moved_count += 1
             log(f"  {green('✓')} {rel_src} {dim('→')} {rel_dst}{album_tag}")
             for src_s, dst_s in plan.sidecars:
-                log(f"    {dim('+ moved sidecar:')} {dst_s.name}")
+                if not any(dst_s.name in w or src_s.name in w for w in plan.warnings):
+                    log(f"    {dim('+ moved sidecar:')} {dst_s.name}")
+            for warning in plan.warnings:
+                warn_count += 1
+                log(f"    {yellow('!')} {warning}")
         else:
             err_count += 1
             log(f"  {red('✗')} {rel_src}: {plan.error}")
@@ -737,6 +794,8 @@ def main(argv: list = None) -> int:
         log(f"  {green('Artist photos')}: {art_copied} folder.jpg set up for Jellyfin")
     if cleaned_count:
         log(f"  {dim('Cleaned')}: {cleaned_count} empty directories removed")
+    if warn_count:
+        log(f"  {yellow('Left behind')}: {warn_count} lyrics/cover files that couldn't move (see the ! lines above)")
     if err_count:
         log(f"  {red('Errors')}: {err_count} files failed to move")
 
