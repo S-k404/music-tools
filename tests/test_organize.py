@@ -1,10 +1,13 @@
+import contextlib
 import io
+import json
 import os
 import shutil
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -291,6 +294,155 @@ class SidecarAndPlanTests(unittest.TestCase):
         # Both songs should share the exact same album destination folder
         self.assertEqual(plan1.dest_audio.parent, plan2.dest_audio.parent)
 
+
+
+class SafeMoveTests(unittest.TestCase):
+    """Songs are never replaced, a half-done move is cleaned up, and names stay within what a disk allows."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.temp_dir)
+        self.music = Path(self.temp_dir) / "Music"
+        for name in ("Downloads", "Mixes"):
+            (self.music / name).mkdir(parents=True)
+
+    def song(self, folder, content, name="Ado - Song.mp3"):
+        path = self.music / folder / name
+        path.write_bytes(content)
+        return path
+
+    def meta(self):
+        return {"artist": "Ado", "album": "Show", "title": "Song", "track": None}
+
+    def test_two_different_files_with_one_name_do_not_pick_the_same_destination(self):
+        first, second = self.song("Downloads", b"short"), self.song("Mixes", b"a much longer recording")
+        claimed = set()
+        plans = [org.plan_move(s, self.music, track_meta=self.meta(), claimed=claimed) for s in (first, second)]
+        self.assertEqual([p.dest_audio.name for p in plans], ["Ado - Song.mp3", "Ado - Song (2).mp3"])
+        for plan in plans:
+            self.assertTrue(org.execute_plan(plan))
+        folder = self.music / "Ado" / "Show"
+        self.assertEqual(sorted(f.read_bytes() for f in folder.iterdir()), [b"a much longer recording", b"short"])
+
+    def test_a_third_copy_keeps_counting_and_case_does_not_hide_a_collision(self):
+        claimed = set()
+        names = []
+        for folder, name in (("Downloads", "Ado - Song.mp3"), ("Mixes", "ado - song.mp3"), ("Mixes", "Ado - Song.mp3")):
+            src = self.song(folder, name.encode(), name=name)
+            names.append(org.plan_move(src, self.music, track_meta=self.meta(), claimed=claimed).dest_audio.name.lower())
+        self.assertEqual(len(set(names)), 3, names)
+
+    def test_a_file_that_turns_up_after_planning_is_never_replaced(self):
+        src = self.song("Downloads", b"mine")
+        plan = org.plan_move(src, self.music, track_meta=self.meta())
+        plan.dest_audio.parent.mkdir(parents=True)
+        plan.dest_audio.write_bytes(b"someone else's")   # appears between planning and moving
+        self.assertFalse(org.execute_plan(plan))
+        self.assertIn("already exists", plan.error)
+        self.assertEqual(plan.dest_audio.read_bytes(), b"someone else's")
+        self.assertEqual(src.read_bytes(), b"mine")
+
+    def test_a_lyrics_file_is_not_replaced_and_the_song_still_counts_as_moved(self):
+        src = self.song("Downloads", b"audio")
+        (self.music / "Downloads" / "Ado - Song.lrc").write_text("new lyrics")
+        plan = org.plan_move(src, self.music, track_meta=self.meta())
+        plan.dest_audio.parent.mkdir(parents=True)
+        (plan.dest_audio.parent / "Ado - Song.lrc").write_text("old lyrics")
+        self.assertTrue(org.execute_plan(plan))
+        self.assertEqual((plan.dest_audio.parent / "Ado - Song.lrc").read_text(), "old lyrics")
+        self.assertTrue((self.music / "Downloads" / "Ado - Song.lrc").exists())
+        self.assertEqual(len(plan.warnings), 1)
+
+    def test_a_copy_that_stops_half_way_leaves_the_song_where_it_was(self):
+        src = self.song("Downloads", b"audio")
+        plan = org.plan_move(src, self.music, track_meta=self.meta())
+
+        def broken_move(a, b):
+            Path(b).write_bytes(b"au")   # the start of a copy, then the disk gives up
+            raise OSError(28, "No space left on device")
+
+        with mock.patch.object(org.shutil, "move", side_effect=broken_move):
+            self.assertFalse(org.execute_plan(plan))
+        self.assertIn("No space", plan.error)
+        self.assertEqual(src.read_bytes(), b"audio")
+        self.assertFalse(plan.dest_audio.exists())
+
+    def test_a_huge_tag_gives_a_folder_name_a_disk_accepts(self):
+        for name in ("x" * 400, "歌" * 200):
+            safe = org.sanitize_name(name)
+            self.assertLessEqual(len(safe.encode("utf-8")), org.MAX_NAME_BYTES)
+            self.assertTrue(safe)
+        self.assertEqual(org.sanitize_name("Normal Name"), "Normal Name")
+
+    def test_main_keeps_both_songs_and_reports_no_errors(self):
+        self.song("Downloads", b"short")
+        self.song("Mixes", b"a much longer recording")
+        config = Path(self.temp_dir) / "c.toml"
+        config.write_text(f"music_dir = {json.dumps(str(self.music))}\n", encoding="utf-8")
+        out = io.StringIO()
+        with mock.patch.object(org, "start_log"), contextlib.redirect_stdout(out):
+            code = org.main(["--config", str(config), "--no-auto-album", "--no-artist-art", "--no-progress"])
+        self.assertEqual(code, 0, out.getvalue())
+        kept = sorted(f.read_bytes() for f in self.music.rglob("*.mp3"))
+        self.assertEqual(kept, [b"a much longer recording", b"short"])
+
+
+class SameAlbumTests(unittest.TestCase):
+    """The organizer reuses a folder that `mt tidy` would call the same album, so the two stop undoing each other."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.temp_dir)
+        self.artist = Path(self.temp_dir) / "Artist"
+        self.artist.mkdir()
+
+    def folder(self, name, songs=1):
+        (self.artist / name).mkdir()
+        for i in range(songs):
+            (self.artist / name / f"{i}.mp3").write_bytes(b"x")
+
+    def test_the_cases_from_a_real_library(self):
+        for existing, tag in (("TIMELY!!", "Timely"), ("WE DON’T TRUST YOU", "WE DON'T TRUST YOU"),
+                              ("SUGAR RUSH", "Sugar Rush - EP"), ("The Singles – The First Fifty Years",
+                                                                 "The Singles - The First Fifty Years"),
+                              ("Kawakiwoameku", "Kawaki wo Ameku"), ("Lazarus (Original Soundtrack)", "Lazarus")):
+            with self.subTest(existing=existing):
+                self.folder(existing)
+                self.assertEqual(org.match_existing_album_dir(self.artist, tag).name, existing)
+                shutil.rmtree(self.artist / existing)
+
+    def test_the_fuller_folder_wins_when_two_qualify(self):
+        self.folder("Timely", songs=1)
+        self.folder("TIMELY!!", songs=5)
+        self.assertEqual(org.match_existing_album_dir(self.artist, "Timely!").name, "TIMELY!!")   # not an exact match of either
+
+    def test_an_exact_match_beats_an_equivalent_one(self):
+        self.folder("TIMELY!!", songs=5)
+        self.folder("Timely", songs=1)
+        self.assertEqual(org.match_existing_album_dir(self.artist, "Timely").name, "Timely")
+
+    def test_a_different_album_starts_its_own_folder(self):
+        self.folder("TIMELY!!")
+        self.assertEqual(org.match_existing_album_dir(self.artist, "Other Album").name, "Other Album")
+        self.assertEqual(org.match_existing_album_dir(self.artist, ""), self.artist)   # no album: the artist folder itself
+
+    def test_very_short_names_are_not_guessed_at(self):
+        self.folder("XY")
+        self.assertEqual(org.match_existing_album_dir(self.artist, "X.Y").name, "X.Y")
+
+    def test_albums_planned_in_one_run_share_a_folder_in_either_spelling(self):
+        music = Path(self.temp_dir)
+        src = music / "YouTube"
+        src.mkdir()
+        planned_dirs, planned_albums = {}, {}
+        dests = []
+        for i, album in enumerate(("TIMELY!!", "Timely", "Timely - EP")):
+            path = src / f"Artist - Song {i}.mp3"
+            path.write_bytes(b"x")
+            meta = {"artist": "Artist", "album": album, "title": f"Song {i}", "track": None}
+            dests.append(org.plan_move(path, music, planned_dirs=planned_dirs, planned_albums=planned_albums,
+                                       track_meta=meta).dest_audio.parent.name)
+        self.assertEqual(len(set(dests)), 1, dests)
 
 
 class RunAllTests(unittest.TestCase):

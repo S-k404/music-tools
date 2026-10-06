@@ -1,5 +1,24 @@
 # Changelog
 
+## Fixed: `mt organize` could replace a song, and it re-split the albums `mt tidy` had just merged
+
+- **A song could be silently replaced.** All moves are planned before any file moves, so two different files with
+  the same name headed for the same album folder (the same song downloaded twice, in different folders) both saw
+  the destination as free, and the second move replaced the first while the run reported "Moved 2 songs" and no
+  errors. Destinations are now claimed as they are planned (case-folded and Unicode-normalised, like the macOS and
+  Windows file systems see them), so the second copy becomes `Song (2).mp3`. As a last safety net a move never
+  replaces a file that is already there: the song stays where it was and the run says so.
+- **Organize no longer undoes `mt tidy`.** It matched an existing album folder only by case and Unicode form, so
+  `TIMELY!!` / `Timely`, `SUGAR RUSH` / `Sugar Rush - EP`, `WE DON’T TRUST YOU` with a curly or straight
+  apostrophe, and `The Singles – …` with a dash or a hyphen counted as different albums and every odd-tagged song
+  started a new folder: after a full `mt auto` the 11 duplicate album folders tidy had merged were back. Organize
+  now uses the same "same album" rule as tidy (the fuller folder wins), for folders on disk and for albums planned
+  in the same run.
+- A lyrics or cover file whose name is already taken in the new folder stays behind with a warning instead of
+  replacing the other one, and a song that moved still counts as moved when only such a file couldn't. A copy that
+  stops half way (disk full, drive unplugged) is removed instead of being left looking like the song.
+- A folder name made from a huge tag is cut to 200 bytes instead of failing with "File name too long".
+
 ## Added: remove duplicate songs, a goal-first menu, and an `mt auto` that asks what you want
 
 - **`mt dupes --delete-strays`** keeps the copy of a song that sits in an `Artist/Album/` folder and removes the
