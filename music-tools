@@ -149,7 +149,7 @@ ORGANIZER  (organize_music.py)  — sort songs into Artist/Album/ folders for Je
   {PROG} organize                     sort songs into Artist/Album/ folders
   {PROG} organize PATH [PATH..]       organize specific files/folders
   {PROG} organize --dry-run           preview what would be moved without moving anything
-  {PROG} organize --no-artist-art     don't copy artist photo to folder.jpg
+  {PROG} organize --no-artist-art     don't copy artist photo to folder.jpg and artist.jpg
   {PROG} organize --no-clean          don't remove empty source directories
 
 ALL-IN-ONE PIPELINE  (run_all.py)  — tidy, art, artists, lyrics and organize in one go, in the smart order

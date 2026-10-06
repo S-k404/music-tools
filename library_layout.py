@@ -43,6 +43,7 @@ JUNK_NAMES = {".ds_store", "thumbs.db", "desktop.ini"}
 ODD_NAMES = {"null", "none", "undefined", "unknown", "unknown album", "unknown artist", "untitled", "various"}
 CHECKED_FILE = HERE / "lyrics_checked.json"   # same file the lyrics tool keeps (see find_lyrics.CHECKED_FILE)
 SHOW = 12                                      # items per section printed on screen; --report has everything
+SAVE_EVERY = 25                                # the undo file is rewritten after this many moves, and after each folder
 
 _DASHES = "-‐‑‒–—―−"
 SUFFIX_RE = re.compile(rf"\s*(?:[{_DASHES}]\s*(?:ep|single)|\((?:ep|single)\))\s*$", re.IGNORECASE)
@@ -277,15 +278,19 @@ class Recorder:
 
     def __init__(self, root: Path):
         self.root, self.ops, self.deleted = root, [], []
+        self.path = None
 
     def save(self) -> Path:
+        """Write the record. Called after every folder that is merged as well as at the end, so a run that is
+        killed half way (crash, power cut, force quit) can still be undone up to that point."""
         if not (self.ops or self.deleted):
             return None
-        LOG_DIR.mkdir(exist_ok=True)
-        path = LOG_DIR / f"layout_undo_{time.strftime('%Y-%m-%d_%H-%M-%S')}.json"
-        atomic_write(path, json.dumps({"root": str(self.root), "ops": self.ops, "deleted": self.deleted},
-                                      ensure_ascii=False, indent=1))
-        return path
+        if self.path is None:
+            LOG_DIR.mkdir(exist_ok=True)
+            self.path = LOG_DIR / f"layout_undo_{time.strftime('%Y-%m-%d_%H-%M-%S')}.json"
+        atomic_write(self.path, json.dumps({"root": str(self.root), "ops": self.ops, "deleted": self.deleted},
+                                           ensure_ascii=False, indent=1))
+        return self.path
 
 
 def rekey_checked(mapping: dict) -> int:
@@ -341,8 +346,8 @@ def backup_target(root: Path, bak: Path, backup_dir: Path) -> Path:
     return backup_dir / bak.relative_to(root)
 
 
-def do_clean(s: Scan, backup_dir, apply: bool) -> Recorder:
-    rec = Recorder(s.root)
+def do_clean(s: Scan, backup_dir, apply: bool, rec: Recorder = None) -> Recorder:
+    rec = rec or Recorder(s.root)
     section("Junk cleanup" + ("" if apply else "  (preview: nothing changed)"))
     log(f"  {plural(len(s.junk), 'junk file')} to delete")
     if backup_dir:
@@ -396,44 +401,60 @@ def do_merge(s: Scan, groups: list, apply: bool, rec: Recorder = None, what: str
     section(f"Merging {what} folders" if apply else f"Merge preview ({what} folders): nothing changed")
     totals = Counter()
     mapping = {}
-    for g in groups:
-        keep, *rest = g.folders
-        for fld in rest:
-            moves = []
-            leftovers = []
-            for cur, _, fnames in os.walk(fld.path):
-                for f in sorted(fnames):
-                    src = Path(cur) / f
-                    (leftovers if is_junk(f) else moves).append((src, keep.path / src.relative_to(fld.path)))
-            if not apply:
-                clash = sum(1 for _, d in moves if os.path.lexists(d))
-                log(f"  {_rel(s, fld.path)}  →  {keep.path.name}   {plural(len(moves), 'file')}"
-                    + (f"  ({clash} already there)" if clash else ""))
-                totals["files"] += len(moves)
-                continue
-            for src, dest in moves:
-                if STOP.is_set():
-                    break
-                try:
-                    result = move_file(src, dest, rec)
-                except OSError as e:
-                    log(f"  {red('✗')} {_rel(s, src)}: {e.strerror or e}")
-                    totals["errors"] += 1
+    try:
+        for g in groups:
+            keep, *rest = g.folders
+            for fld in rest:
+                moves = []
+                leftovers = []
+                for cur, _, fnames in os.walk(fld.path):
+                    for f in sorted(fnames):
+                        src = Path(cur) / f
+                        (leftovers if is_junk(f) else moves).append((src, keep.path / src.relative_to(fld.path)))
+                if not apply:
+                    clash = sum(1 for _, d in moves if os.path.lexists(d))
+                    log(f"  {_rel(s, fld.path)}  →  {keep.path.name}   {plural(len(moves), 'file')}"
+                        + (f"  ({clash} already there)" if clash else ""))
+                    totals["files"] += len(moves)
                     continue
-                totals[result] += 1
-                if result == "moved":
-                    mapping[str(src)] = str(dest)
-                elif result == "conflict":
-                    log(f"  {yellow('•')} kept both: {_rel(s, src)} (a different file is at {_rel(s, dest)})")
-            for src, _ in leftovers:   # junk in a folder that is being merged away
+                for src, dest in moves:
+                    if STOP.is_set():
+                        break
+                    try:
+                        result = move_file(src, dest, rec)
+                    except OSError as e:
+                        log(f"  {red('✗')} {_rel(s, src)}: {e.strerror or e}")
+                        totals["errors"] += 1
+                        continue
+                    totals[result] += 1
+                    if len(rec.ops) % SAVE_EVERY == 0 and result in ("moved", "same"):
+                        try:
+                            rec.save()   # a hard kill (power cut) then loses at most the last few moves from the record
+                        except OSError:
+                            pass
+                    if result == "moved":
+                        mapping[str(src)] = str(dest)
+                    elif result == "conflict":
+                        log(f"  {yellow('•')} kept both: {_rel(s, src)} (a different file is at {_rel(s, dest)})")
+                for src, _ in leftovers:   # junk in a folder that is being merged away
+                    try:
+                        src.unlink()
+                        rec.deleted.append(str(src))
+                    except OSError:
+                        pass
+                dirs = sorted((Path(c) for c, _, _ in os.walk(fld.path)), key=lambda d: -len(d.parts))
+                if remove_empty_dirs(dirs):
+                    totals["folders"] += 1
                 try:
-                    src.unlink()
-                    rec.deleted.append(str(src))
+                    rec.save()   # what is done so far can be undone even if the run is killed now
                 except OSError:
                     pass
-            dirs = sorted((Path(c) for c, _, _ in os.walk(fld.path)), key=lambda d: -len(d.parts))
-            if remove_empty_dirs(dirs):
-                totals["folders"] += 1
+    finally:
+        if apply:
+            try:
+                rec.save()   # whatever happened, what was moved can be undone
+            except OSError:
+                pass
     if apply:
         rekey = rekey_checked(mapping)
         log(f"  {green('✓')} moved {totals['moved']}, dropped {totals['same']} identical copies, "
@@ -455,39 +476,48 @@ def _remove_empty_parents(folder: Path, root: Path) -> None:
 
 
 def do_undo(manifest: Path, apply: bool) -> None:
-    data = json.loads(manifest.read_text(encoding="utf-8"))
-    ops = data.get("ops", [])
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        ops = data.get("ops", [])
+    except (OSError, ValueError, AttributeError) as e:
+        sys.exit(f"Can't read the undo file {manifest}: {getattr(e, 'strerror', None) or e}")
     section(f"Undo of {manifest.name}" + ("" if apply else "  (preview: nothing changed)"))
-    done = skipped = 0
+    done = skipped = failed = 0
     mapping = {}
     for op in reversed(ops):
-        if op["op"] == "move":
-            src, dest = Path(op["to"]), Path(op["from"])
-            if src.exists() and not os.path.lexists(dest):
-                if apply:
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.move(str(src), str(dest))
-                    mapping[str(src)] = str(dest)
-                    _remove_empty_parents(src.parent, Path(data.get("root", "")))
-                done += 1
-            else:
-                skipped += 1
-        elif op["op"] == "dedup":
-            src, dest = Path(op["same_as"]), Path(op["from"])
-            if src.exists() and not os.path.lexists(dest):
-                if apply:
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(src, dest)
-                done += 1
-            else:
-                skipped += 1
+        try:
+            if op["op"] == "move":
+                src, dest = Path(op["to"]), Path(op["from"])
+                if src.exists() and not os.path.lexists(dest):
+                    if apply:
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.move(str(src), str(dest))
+                        mapping[str(src)] = str(dest)
+                        _remove_empty_parents(src.parent, Path(data.get("root", "")))
+                    done += 1
+                else:
+                    skipped += 1
+            elif op["op"] == "dedup":
+                src, dest = Path(op["same_as"]), Path(op["from"])
+                if src.exists() and not os.path.lexists(dest):
+                    if apply:
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(src, dest)
+                    done += 1
+                else:
+                    skipped += 1
+        except (OSError, KeyError) as e:   # one file that won't go back must not stop the others
+            failed += 1
+            log(f"  {red('✗')} {op.get('from', '?')}: {getattr(e, 'strerror', None) or e}")
     log(f"  {plural(done, 'file')} {'restored' if apply else 'would be restored'}"
-        + (f", {plural(skipped, 'change')} skipped (already undone or changed since)" if skipped else ""))
+        + (f", {plural(skipped, 'change')} skipped (already undone or changed since)" if skipped else "")
+        + (f", {failed} failed (the undo file is kept so you can run it again)" if failed else ""))
     if data.get("deleted"):
         log(dim(f"  {plural(len(data['deleted']), 'junk file')} deleted by that run can't be brought back (they were junk)."))
     if apply:
         rekey_checked(mapping)
-        manifest.rename(manifest.with_name(manifest.stem + ".undone.json"))
+        if not failed:   # with failures it stays, so running --undo again picks up the rest
+            manifest.rename(manifest.with_name(manifest.stem + ".undone.json"))
 
 
 def latest_manifest(explicit=None):
@@ -555,11 +585,11 @@ def main():
                                             ("merge duplicate albums", args.merge_albums)) if on)
         if not confirm(f"Really {what} in {cfg['music_dir']}? An undo file is saved."):
             sys.exit("Nothing was changed.")
-    rec = None
+    rec = Recorder(s.root)   # made before anything moves, so even a crash inside a merge leaves an undo file
     backup_dir = resolve(cfg["lyrics"]["backup_dir"], cfg["music_dir"]) if cfg["lyrics"]["backup_dir"] else None
     try:
         if args.clean:
-            rec = do_clean(s, backup_dir, args.apply)
+            rec = do_clean(s, backup_dir, args.apply, rec)
         if args.merge_artists and not STOP.is_set():
             if args.apply and args.clean:
                 s = scan(cfg["music_dir"], skip_folders(cfg))   # folders changed during the cleanup

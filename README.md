@@ -489,17 +489,44 @@ Music/
 │   │   ├── 01 - Track Title.mp3
 │   │   ├── 01 - Track Title.lrc
 │   │   └── 01 - Track Title.html
-│   └── folder.jpg (copied from Artist Art for Jellyfin / Plex)
+│   ├── folder.jpg (copied from Artist Art: Jellyfin and Plex)
+│   └── artist.jpg (the same picture: Plex and Navidrome)
 ```
 
 - **Smart tag & filename reading**: Uses artist and album tags from the files,
   falling back to `Artist - Title` in the filename if tags are missing.
 - **Sidecars move together**: Accompanying `.lrc`, `.html`, `.txt`, and sidecar
   images are kept with the audio file.
-- **Jellyfin artist photos**: If `artist_art.output_dir` contains an image for the
-  artist, it automatically copies it to `<Artist>/folder.jpg`.
-- **Safe**: Resolves file name collisions cleanly, cleans up empty source directories,
-  and offers a `--dry-run` preview.
+- **Artist photos**: If `artist_art.output_dir` contains an image for the artist, it is copied to
+  `<Artist>/folder.jpg` (Jellyfin, Plex) and `<Artist>/artist.jpg` (Plex, and Navidrome, which only looks for
+  `artist.*`). A picture already in the folder is never replaced, and a PNG keeps its `.png` name.
+- **Safe**: Never replaces a file. Two different songs with the same name headed for one album folder both
+  stay (the second becomes `Song (2).mp3`), a lyrics file that would collide stays behind with a warning, a copy
+  that stops half way is removed, and a `--dry-run` previews everything. Empty source folders are cleaned up.
+- **Albums that already have a folder are reused**, written however the tag spells it (`TIMELY!!` / `Timely`,
+  `SUGAR RUSH` / `Sugar Rush - EP`, curly or straight apostrophes, a dash or a hyphen, `(Deluxe)` additions), using
+  the same rule as `mt tidy`, so organizing never recreates the duplicate folders tidy merged.
+- **Multi-disc albums** keep their `Disc 1`, `CD2` ... folders when they are already inside the right album, as
+  Jellyfin and Plex expect (they read the disc number from the tags).
+- **Long names** from a messy tag are cut to 200 bytes so the disk accepts them.
+
+### What music players actually use
+
+The folders are the half of the job this tool does; players also read the **tags**:
+
+- **Jellyfin, Plex and Navidrome group albums and artists by the embedded tags**, not by folder names. Plex gives
+  the *Album Artist* tag very high importance, and Jellyfin recommends one album per folder. The organizer prefers
+  the `albumartist` tag over `artist` when it names the folder, so compilations land under *Various Artists* when
+  they are tagged that way.
+- A song whose **album tag spells the album differently from its folder** (`Timely` in a folder called
+  `TIMELY!!`) is still shown by tag-based players as a second album, even though the folder is right. Merging
+  folders with `mt tidy` doesn't rewrite tags. Check with `mt tags` and fix the album tag, or retag in a tag editor.
+- **Collaboration folders** (`A & B`, `A feat. B`, `A, B`) come from an `artist` tag that names several artists.
+  Real groups look the same (`Earth, Wind & Fire`), so they are listed for you to review, never changed. Setting
+  the `albumartist` tag to the main artist gives players one artist page.
+- An album found online for a loose song only names the **folder**; it doesn't write the tag.
+- Names have `< > : " / \ | ? *` removed or replaced (these break players and shares), and lyrics sit next to the
+  song with the same name, which is how Jellyfin, Plex and Navidrome find them.
 
 ```bash
 mt organize --dry-run                       # preview what will move without touching disk

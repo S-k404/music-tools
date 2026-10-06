@@ -387,6 +387,69 @@ class SafeMoveTests(unittest.TestCase):
         self.assertEqual(kept, [b"a much longer recording", b"short"])
 
 
+class PlayerLayoutTests(unittest.TestCase):
+    """What Jellyfin, Plex and Navidrome look for next to the songs."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.temp_dir)
+        self.music = Path(self.temp_dir) / "Music"
+        self.music.mkdir()
+
+    def plan_for(self, rel, album="Album"):
+        song = self.music / rel
+        song.parent.mkdir(parents=True, exist_ok=True)
+        song.write_bytes(b"x")
+        meta = {"artist": "Artist", "album": album, "title": "T", "track": None}
+        return org.plan_move(song, self.music, track_meta=meta)
+
+    def test_songs_in_a_disc_folder_stay_there_instead_of_colliding_in_the_album_folder(self):
+        for rel in ("Artist/Album/Disc 1/01 Intro.mp3", "Artist/Album/Disc 2/01 Intro.mp3", "Artist/Album/CD3/01 Intro.mp3"):
+            with self.subTest(rel=rel):
+                plan = self.plan_for(rel)
+                self.assertTrue(plan.is_noop)
+                self.assertEqual(plan.dest_audio, self.music / rel)
+
+    def test_a_disc_folder_in_the_wrong_album_is_still_sorted_out(self):
+        plan = self.plan_for("Artist/Other Album/Disc 1/01 Intro.mp3", album="Album")
+        self.assertFalse(plan.is_noop)
+        self.assertEqual(plan.dest_audio.parent.name, "Album")
+
+    def test_other_subfolders_are_still_flattened_into_the_album_folder(self):
+        plan = self.plan_for("Artist/Album/Random/01 Intro.mp3")
+        self.assertFalse(plan.is_noop)
+        self.assertEqual(plan.dest_audio, self.music / "Artist" / "Album" / "01 Intro.mp3")
+
+    def test_the_artist_picture_is_saved_for_jellyfin_plex_and_navidrome(self):
+        (self.music / "Artist").mkdir()
+        art = self.music / "Artist Art"
+        art.mkdir()
+        (art / "Artist.jpg").write_bytes(b"picture")
+        self.assertTrue(org.copy_jellyfin_artist_art(self.music, "Artist", art))
+        for name in ("folder.jpg", "artist.jpg"):   # Navidrome only looks for artist.*, Jellyfin for folder.*
+            self.assertEqual((self.music / "Artist" / name).read_bytes(), b"picture", name)
+
+    def test_a_png_is_not_saved_under_a_jpg_name(self):
+        (self.music / "Artist").mkdir()
+        art = self.music / "Artist Art"
+        art.mkdir()
+        (art / "Artist.png").write_bytes(b"png")
+        org.copy_jellyfin_artist_art(self.music, "Artist", art)
+        self.assertTrue((self.music / "Artist" / "folder.png").is_file())
+        self.assertTrue((self.music / "Artist" / "artist.png").is_file())
+        self.assertFalse((self.music / "Artist" / "folder.jpg").exists())
+
+    def test_a_picture_already_there_is_never_replaced(self):
+        (self.music / "Artist").mkdir()
+        (self.music / "Artist" / "artist.jpg").write_bytes(b"mine")
+        art = self.music / "Artist Art"
+        art.mkdir()
+        (art / "Artist.jpg").write_bytes(b"other")
+        self.assertFalse(org.copy_jellyfin_artist_art(self.music, "Artist", art))
+        self.assertEqual((self.music / "Artist" / "artist.jpg").read_bytes(), b"mine")
+        self.assertFalse((self.music / "Artist" / "folder.jpg").exists())
+
+
 class SameAlbumTests(unittest.TestCase):
     """The organizer reuses a folder that `mt tidy` would call the same album, so the two stop undoing each other."""
 

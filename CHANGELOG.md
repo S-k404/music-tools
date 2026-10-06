@@ -18,6 +18,18 @@
   replacing the other one, and a song that moved still counts as moved when only such a file couldn't. A copy that
   stops half way (disk full, drive unplugged) is removed instead of being left looking like the song.
 - A folder name made from a huge tag is cut to 200 bytes instead of failing with "File name too long".
+- **Multi-disc albums are no longer flattened**: a song in `Album/Disc 1/` (or `CD2`, `Disk 3`) that is already in
+  the right album stays there, instead of being pulled into the album folder where the same track number on
+  another disc would collide.
+- **Artist pictures also as `artist.jpg`**: the organizer wrote only `folder.jpg`, which Jellyfin and Plex read but
+  Navidrome does not (it looks for `artist.*`). Both names are written now, a picture already there is never
+  replaced, and a PNG keeps its `.png` name.
+- **`mt tidy` can be undone after a crash**: the undo file used to be written only at the very end, so a run killed
+  half way (crash, power cut, force quit) left nothing to undo from. It is now rewritten after every folder, every 25
+  moves, and when the run is interrupted. `--undo` carries on past a file that won't go back (the undo file is kept
+  so it can be run again), and an unreadable undo file gives a message instead of a traceback.
+- README: a section on what Jellyfin, Plex and Navidrome actually use (tags first), with the cases the folders
+  can't fix (an album tag spelled differently from its folder, collaboration artist folders).
 
 ## Added: remove duplicate songs, a goal-first menu, and an `mt auto` that asks what you want
 
