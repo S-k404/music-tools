@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """
 Find songs that are probably the same recording saved more than once - downloaded
-twice into different folders, or in different formats/bitrates. Report only: nothing
-is ever deleted, moved or changed. You decide what (if anything) to remove yourself.
+twice into different folders, or in different formats/bitrates. By default this only
+REPORTS: nothing is deleted, moved or changed. You decide what (if anything) to remove.
+
+With --delete-strays it can also clear out the loose copies for you: a copy that sits
+inside an Artist/Album/ folder is kept, and the same song loose in the library root or
+directly in an artist folder is removed (with its lyrics/cover files): moved to the Trash
+on a Mac, deleted for good elsewhere. Only groups that have both kinds are touched, and
+nothing is removed without --apply.
 
 Songs are grouped by artist and a cleaned-up title (YouTube upload noise and
 deliberate variant words like "sped up"/"slowed"/"nightcore" stripped, so two
@@ -17,21 +23,26 @@ Usage:
   python3 find_duplicates.py "/some/folder"   # just this folder
   python3 find_duplicates.py --tolerance 1.5  # how close two lengths must be (seconds)
   python3 find_duplicates.py --report dupes.txt
+  python3 find_duplicates.py --delete-strays          # preview: which loose copies would go
+  python3 find_duplicates.py --delete-strays --apply  # remove them (asks first; --yes skips the question)
 """
 
 import argparse
 import re
+import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
-from common import (STOP, bold, dim, find_audio, fit, folder_problem, heading, install_stop_handler, load_config,
-                    log, plural, progress, require, resolve, section, start_log, text_width, yellow)
+from common import (LOG_DIR, STOP, atomic_write, bold, dim, find_audio, fit, folder_problem, green, heading,
+                    install_stop_handler, load_config, log, plural, progress, red, require, resolve, section,
+                    start_log, text_width, yellow)
 
 require("mutagen")
 
-from fix_album_art import AUDIO_EXTS, NOISE_RE, UNSUPPORTED_EXTS, clean_text
+from fix_album_art import AUDIO_EXTS, NOISE_RE, UNSUPPORTED_EXTS, clean_text, move_to_trash
 from find_lyrics import Job, TRAILING_NOISE, load_song_info
 from lyrics_lang import norm
 
@@ -52,6 +63,10 @@ BRACKETED_DECORATION_RE = re.compile(
     r"[\(\[][^\)\]]*\b(?:re-?mix(?:ed)?|live|acoustic|instrumental)\b[^\)\]]*[\)\]]", re.IGNORECASE)
 TRAILING_DECORATION_RE = re.compile(
     r"[\s\-–—]+(?:re-?mix(?:ed)?|live|acoustic|instrumental)\s*$", re.IGNORECASE)
+
+LOSSLESS = {"flac", "wav"}
+# files named after a song that belong to it (lyrics, their backup, a cover) and go when the song goes
+SIDECAR_SUFFIXES = (".lrc", ".lrc.bak", ".html", ".txt", ".jpg", ".jpeg", ".png", ".webp", ".nfo")
 
 
 def tidy_title(title: str) -> str:
@@ -183,6 +198,160 @@ def report(groups: list, no_artist: int, no_duration: int, total_files: int, rep
             print(dim(f"  ! couldn't write {report_file}: {e.strerror or e}"))
 
 
+# ---------------------------------------------------------------- deleting the loose copies
+
+def in_album_folder(path: Path, root: Path):
+    """True when the song sits in an Artist/Album/ folder (or deeper), False when it is loose in the music
+    folder itself or directly in an artist folder, None when it isn't under the music folder at all."""
+    try:
+        parts = path.resolve().relative_to(root.resolve()).parts
+    except (OSError, ValueError):
+        return None
+    return len(parts) >= 3
+
+
+@dataclass
+class StrayPlan:
+    keep: list      # copies inside album folders: never touched
+    delete: list    # loose copies that an album copy makes redundant
+    held: list      # loose copies kept anyway: a lossless file when every album copy is lossy
+
+
+def plan_strays(groups: list, root: Path) -> tuple:
+    """(plans, no_album, nothing_loose). A group gets a plan only when it has a copy in an album folder to keep
+    and a loose one to drop. Groups with no album copy (nothing says which to prefer) or no loose copy
+    (nothing stray) are only counted: those are yours to decide."""
+    plans, no_album, nothing_loose = [], 0, 0
+    for g in groups:
+        where = [(m, in_album_folder(m.path, root)) for m in g]
+        keep = [m for m, w in where if w is True]
+        loose = [m for m, w in where if w is False]
+        if not loose:
+            nothing_loose += 1
+        elif not keep:
+            no_album += 1
+        else:
+            kept_lossless = any(k.ext in LOSSLESS for k in keep)
+            held = [m for m in loose if m.ext in LOSSLESS and not kept_lossless]
+            plans.append(StrayPlan(keep, [m for m in loose if m not in held], held))
+    return plans, no_album, nothing_loose
+
+
+def sidecars_of(path: Path) -> list:
+    """The lyrics, backup and cover files named after this song (song.lrc, song.html, song.jpg ...)."""
+    return [f for f in (path.with_name(path.stem + suffix) for suffix in SIDECAR_SUFFIXES) if f.is_file()]
+
+
+def copies(n: int) -> str:
+    return "1 loose copy" if n == 1 else f"{n} loose copies"
+
+
+def stem_still_used(path: Path) -> bool:
+    """Whether another song with the same name stays (song.flac next to song.mp3), so the lyrics and cover
+    named after it have to stay too."""
+    try:
+        return any(f != path and f.stem == path.stem and f.suffix.lower() in AUDIO_EXTS | UNSUPPORTED_EXTS
+                   for f in path.parent.iterdir())
+    except OSError:
+        return True   # can't tell, so leave them
+
+
+def shown_path(path: Path, root: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(root.resolve()))
+    except (OSError, ValueError):
+        return str(path)
+
+
+def print_stray_plan(plans: list, root: Path, no_album: int, nothing_loose: int) -> None:
+    section("Loose copies to remove")
+    width = min(60, max([text_width(shown_path(m.path, root)) for p in plans for m in (*p.keep, *p.delete, *p.held)]
+                        or [1]))
+    for p in plans:
+        rep = min((*p.keep, *p.delete, *p.held), key=lambda m: str(m.path))
+        print(f"\n  {bold(rep.artist)}  {dim('—')}  {rep.title}")
+        for label, paint, members in (("keep", green, p.keep), ("delete", red, p.delete), ("held", yellow, p.held)):
+            for m in sorted(members, key=lambda m: str(m.path)):
+                extra = len(sidecars_of(m.path)) if label == "delete" and not stem_still_used(m.path) else 0
+                note = {"delete": f"  {dim('+ ' + plural(extra, 'lyrics/cover file'))}" if extra else "",
+                        "held": f"  {dim('lossless, and no album copy is')}"}.get(label, "")
+                print(f"    {paint(f'{label:<6}')}  {fit(shown_path(m.path, root), width)}  {mmss(m.duration):>5}  "
+                      f"{human_size(m.size):>8}  {m.ext}{note}")
+    doomed = [m for p in plans for m in p.delete]
+    print()
+    print("  " + dim("─" * 46))
+    if doomed:
+        print("  " + yellow(f"• {copies(len(doomed))} in {plural(sum(1 for p in plans if p.delete), 'group')} to "
+                            f"{'move to the Trash' if uses_trash() else 'delete'}")
+              + dim(f"   ~{human_size(sum(m.size for m in doomed))} freed"))
+    else:
+        print("  " + dim("• no loose copies to remove"))
+    if no_album:
+        print(dim(f"  {plural(no_album, 'group')} left alone: no copy of the song is in an album folder yet"))
+    if nothing_loose:
+        print(dim(f"  {plural(nothing_loose, 'group')} left alone: no loose copy"))
+
+
+def remove_empty_parents(folder: Path, root: Path) -> None:
+    root = root.resolve()
+    try:
+        folder = folder.resolve()
+        while folder != root and root in folder.parents:
+            folder.rmdir()   # fails (and stops) on a folder that still has something in it
+            folder = folder.parent
+    except OSError:
+        pass
+
+
+def uses_trash() -> bool:
+    """On a Mac the loose copies go to the Trash (so they can be put back); elsewhere there's no helper."""
+    return sys.platform == "darwin"
+
+
+def remove_file(path: Path) -> str:
+    """'' when it was removed, else why not."""
+    try:
+        if uses_trash():
+            return "" if move_to_trash(path) else "couldn't move it to the Trash (allow your terminal to control Finder?)"
+        path.unlink()
+        return ""
+    except (OSError, subprocess.SubprocessError) as e:
+        return getattr(e, "strerror", None) or str(e)
+
+
+def delete_strays(plans: list, root: Path) -> tuple:
+    """Remove each planned loose copy and its lyrics/cover files. (removed (copy, kept copy) pairs, failures)."""
+    removed, failed = [], 0
+    for plan in plans:
+        for m in plan.delete:
+            if STOP.is_set():
+                return removed, failed
+            extras = [] if stem_still_used(m.path) else sidecars_of(m.path)
+            why = remove_file(m.path)
+            if why:
+                log(f"  ! {m.path}: {why}")
+                failed += 1
+                continue
+            for f in extras:
+                remove_file(f)   # a lyrics/cover file that stays behind is harmless
+            remove_empty_parents(m.path.parent, root)
+            removed.append((m, plan.keep[0]))
+    return removed, failed
+
+
+def save_removed_list(removed: list) -> Path:
+    LOG_DIR.mkdir(exist_ok=True)
+    path = LOG_DIR / f"duplicates_removed_{time.strftime('%Y-%m-%d_%H-%M-%S')}.txt"
+    atomic_write(path, "".join(f"{m.path}\tkept: {k.path}\n" for m, k in removed))
+    return path
+
+
+def confirm(question: str) -> bool:
+    if not sys.stdin.isatty():
+        return False
+    return input(f"\n  {question} [y/N] ").strip().lower() in ("y", "yes")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("paths", nargs="*", help="files/folders to check (default: duplicates.folders from the config)")
@@ -190,8 +359,19 @@ def main():
     ap.add_argument("--tolerance", type=float, help="seconds two lengths can differ by and still count as the same recording")
     ap.add_argument("--workers", type=int, choices=range(1, 65), metavar="1-64", help="parallel tag reads")
     ap.add_argument("--report", metavar="FILE", help="save the group listing as a plain text file")
+    ap.add_argument("--delete-strays", action="store_true",
+                    help="keep the copies inside Artist/Album/ folders and delete the same songs loose in the "
+                         "music folder or an artist folder (a preview unless you add --apply)")
+    ap.add_argument("--apply", action="store_true", help="with --delete-strays: really delete them")
+    ap.add_argument("--yes", action="store_true", help="don't ask before --apply")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="preview only; --delete-strays already does this unless you add --apply")
     ap.add_argument("--no-progress", action="store_true", help="hide progress bars")
     args = ap.parse_args()
+    if args.apply and not args.delete_strays:
+        ap.error("--apply goes with --delete-strays (the duplicate report on its own never changes anything)")
+    if args.apply and args.dry_run:
+        ap.error("pick one: --dry-run previews, --apply deletes")
 
     cfg = load_config(args.config)
     start_log("duplicates", cfg)
@@ -202,7 +382,8 @@ def main():
         opts["tolerance_seconds"] = args.tolerance
     workers = max(1, min(64, args.workers or cfg["workers"]))
     quiet = args.no_progress
-    heading("Duplicate songs", "report only — nothing is ever deleted")
+    heading("Duplicate songs", ("removing loose copies" if args.apply else "preview: nothing is changed")
+            if args.delete_strays else "report only — nothing is ever deleted")
 
     paths = args.paths or [resolve(f, cfg["music_dir"]) for f in opts["folders"]]
     for p in paths:
@@ -220,7 +401,34 @@ def main():
         print(f"\n  {yellow('•')} Stopped.\n")
         return
     groups = find_groups(records, opts["tolerance_seconds"])
-    report(groups, no_artist, no_duration, len(files), args.report)
+    if not args.delete_strays:
+        report(groups, no_artist, no_duration, len(files), args.report)
+        return
+
+    root = Path(cfg["music_dir"]).expanduser()
+    plans, no_album, nothing_loose = plan_strays(groups, root)
+    print_stray_plan(plans, root, no_album, nothing_loose)
+    doomed = [p for p in plans if p.delete]
+    if not doomed:
+        print()
+        return
+    if not args.apply:
+        print(dim("\n  Preview only: nothing was changed. Add --apply to remove the copies marked 'delete'.\n"))
+        return
+    count = sum(len(p.delete) for p in doomed)
+    question = (f"Really move {copies(count)} to the Trash?" if uses_trash()
+                else f"Really delete {copies(count)}? They can't be brought back.")
+    if not args.yes and not confirm(question):
+        sys.exit("Nothing was changed.")
+    removed, failed = delete_strays(doomed, root)
+    if removed:
+        print(f"\n  {green('✓')} {'Moved' if uses_trash() else 'Deleted'} {copies(len(removed))}"
+              + (" to the Trash" if uses_trash() else "") + (f", {failed} failed" if failed else "")
+              + dim(f"   (list saved to {save_removed_list(removed)})"))
+    elif failed:
+        print(f"\n  {red('✗')} Nothing could be removed ({failed} failed)")
+    print()
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

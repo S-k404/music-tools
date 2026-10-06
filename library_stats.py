@@ -89,33 +89,48 @@ def _scoped_files(cfg: dict, section: str, exts: set, label: str, library: Libra
     return library.files(folders, exts), folders
 
 
-def art_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None:
+def art_numbers(cfg: dict, workers: int, quiet: bool, library: Library):
+    """(songs with art, songs that can hold art, songs that can't, folders), or None if a folder can't be read."""
     files, folders = _scoped_files(cfg, "album_art", AUDIO_EXTS | UNSUPPORTED_EXTS, "Cover art", library)
     if files is None:
-        return
+        return None
     capable = [p for p in files if p.suffix.lower() in AUDIO_EXTS]
     with ThreadPoolExecutor(workers) as pool:
         flags = list(progress(pool.map(has_art, capable), len(capable), "Checking art", quiet))
-    have = sum(flags)
-    extra = f"  ·  {len(files) - len(capable)} can't hold art (webm/wav/aac)" if len(files) > len(capable) else ""
-    fact("Cover art", f"{have}/{len(capable)} have art  ({plural(len(folders), 'folder')} configured){extra}")
+    return sum(flags), len(capable), len(files) - len(capable), folders
 
 
-def artist_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None:
+def art_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None:
+    numbers = art_numbers(cfg, workers, quiet, library)
+    if numbers is None:
+        return
+    have, capable, cant_hold, folders = numbers
+    extra = f"  ·  {cant_hold} can't hold art (webm/wav/aac)" if cant_hold else ""
+    fact("Cover art", f"{have}/{capable} have art  ({plural(len(folders), 'folder')} configured){extra}")
+
+
+def artist_numbers(cfg: dict, workers: int, quiet: bool, library: Library):
+    """(artists with a picture, artists), or None if a folder can't be read."""
     files, folders = _scoped_files(cfg, "artist_art", AUDIO_EXTS | UNSUPPORTED_EXTS, "Artist pics", library)
     if files is None:
-        return
+        return None
     jobs = collect_artists(files, workers, quiet)
     out_dir = resolve(cfg["artist_art"]["output_dir"], cfg["music_dir"])
     homes = artist_homes(cfg["music_dir"]) if cfg["artist_art"]["placement"] == "artist_folder" else None
-    have = sum(has_picture(out_dir, j.name, homes) for j in jobs)
-    fact("Artist pics", f"{have}/{len(jobs)} artists have a picture")
+    return sum(has_picture(out_dir, j.name, homes) for j in jobs), len(jobs)
 
 
-def lyrics_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None:
+def artist_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None:
+    numbers = artist_numbers(cfg, workers, quiet, library)
+    if numbers is not None:
+        fact("Artist pics", f"{numbers[0]}/{numbers[1]} artists have a picture")
+
+
+def lyrics_numbers(cfg: dict, workers: int, quiet: bool, library: Library):
+    """(saved, English (skipped), not on lrclib, pending, songs), or None if a folder can't be read."""
     files, folders = _scoped_files(cfg, "lyrics", AUDIO_EXTS, "Lyrics", library)
     if files is None:
-        return
+        return None
     checked = load_checked()
     formats = cfg["lyrics"]["formats"]
     saved = english = notfound = pending = 0
@@ -129,7 +144,14 @@ def lyrics_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None
             notfound += 1
         else:
             saved += 1
-    fact("Lyrics", f"{saved} saved  ·  {english} English (skipped)  ·  {notfound} not on lrclib  ·  {pending} pending")
+    return saved, english, notfound, pending, len(files)
+
+
+def lyrics_stats(cfg: dict, workers: int, quiet: bool, library: Library) -> None:
+    numbers = lyrics_numbers(cfg, workers, quiet, library)
+    if numbers is not None:
+        saved, english, notfound, pending, _ = numbers
+        fact("Lyrics", f"{saved} saved  ·  {english} English (skipped)  ·  {notfound} not on lrclib  ·  {pending} pending")
 
 
 def read_tags(path: Path, opts: dict):

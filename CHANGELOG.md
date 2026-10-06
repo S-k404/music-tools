@@ -1,5 +1,33 @@
 # Changelog
 
+## Added: remove duplicate songs, a goal-first menu, and an `mt auto` that asks what you want
+
+- **`mt dupes --delete-strays`** keeps the copy of a song that sits in an `Artist/Album/` folder and removes the
+  loose copies (in the music folder or directly in an artist folder), with the lyrics and cover files named
+  after them. It previews unless you add `--apply`, then asks first (`--yes` skips the question). A group with no
+  album copy, or with every copy in an album, is left alone; a copy outside the music folder is never touched; a
+  loose lossless file is held back when every album copy is lossy. On a Mac the copies go to the Trash; elsewhere
+  they are deleted for good (the question says which). What was removed is saved to
+  `logs/duplicates_removed_<time>.txt`. Plain `mt dupes` is still report-only.
+- **`mt auto` looks, then asks.** Typed alone in a terminal it scans the library (read-only, no network), shows what
+  it found next to each step ("212 of 1,904 songs have no art"), ticks the steps with work to do and lets you
+  change the list. Below the steps are **Preview only (dry run)** and **Apply the changes without asking
+  again**. Removing songs, fixing tags and sorting folders are never ticked for you. With any option on the
+  command line, or without a terminal, it runs exactly what you asked for with no questions, as before.
+  `mt auto --delete-strays` adds the duplicate-song step to the pipeline (after the tidy, before art and lyrics).
+- **A menu organised by what you want to do**: Do it all for me, Tidy my files, Add what's missing, Check my
+  library, then Folders, Settings, Logs and Help. The old 15 tool-named rows are now one level down under those
+  goals. The duplicates screen has Remove / Preview / Apply boxes, and hints line up in a column on every screen.
+- `library_stats.py` now has `art_numbers`, `artist_numbers` and `lyrics_numbers` that return the counts the
+  health check prints (its output is unchanged).
+
+## Added: `mt clean`, and dashes in front of a command are ignored
+
+- `mt clean` and `mt cleanup` now mean `mt tidy` (same confirmation prompt, same undo file). Before, `mt -clean`
+  stopped with "Unknown command" and no suggestion, because `--clean` is only an option of `mt layout`.
+- Dashes typed in front of a real command are ignored (`mt -clean`, `mt --tidy`, `mt --undo`), like the flag
+  slips that were already forgiven. A word that isn't a command (`mt -banana`) is still refused.
+
 ## Added: Windows support, and fixes for other setups
 
 - **Windows 10/11 now works.** `setup.bat` creates `.venv` and installs the packages, and `mt.cmd` is `mt` for
