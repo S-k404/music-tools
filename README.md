@@ -100,14 +100,15 @@ previous runs.
   Music folder  /path/to/Music  ✓
   Art folders   YouTube  ✓
 
- ❯  1 Do it all for me    looks at your library, shows what it found, asks what to do
-    2 Tidy my files       junk, duplicate folders and songs, folder layout, wrong tags
+ ❯  1 Do it all for me    scans your library, then asks what to do
+    2 Tidy my files       junk, duplicates, folder layout, tags
     3 Add what's missing  album art, artist pictures, lyrics
-    4 Check my library   health check and lists of what's missing, changes nothing
-    5 Folders             change which folders are used
-    6 Settings            matching, cropping, tag options…
-    7 Logs                see what previous runs did
-    8 Help                all commands
+    4 One song or artist  art link, lyrics, set artist, one picture
+    5 Check my library   health check and lists; changes nothing
+    6 Folders             change which folders are used
+    7 Settings            matching, cropping, tag options…
+    8 Logs                see what previous runs did
+    9 Help                all commands
       Quit
 ```
 
@@ -124,7 +125,12 @@ The menu is organised by what you want to do with your files rather than by tool
 - **Tidy my files**: clean up junk and duplicate folders, remove duplicate songs (by the rule, or by ticking the
   copies yourself), sort into Artist/Album folders, fix wrong tags, undo the last tidy.
 - **Add what's missing**: album art, artist pictures, lyrics, retry the songs that failed.
-- **Check my library**: the health check, and lists of what's missing (changes nothing).
+- **One song or artist**: the options that name a single thing: add art to one song from a YouTube link, find
+  lyrics for one song, use your own lyrics file, look up lyrics for any song, set a song's artist by hand, find a
+  picture for one artist (or use your own link or image), save the artists still missing a picture to a file and
+  read the links you filled in back.
+- **Check my library**: the health check, and lists of what's missing (changes nothing), including the songs with
+  no title or artist tag.
 
 Everything is also available as direct commands; `mt help` lists them all.
 
