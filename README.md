@@ -8,7 +8,7 @@ reads one shared `config.toml`, so you set your music folder once.
 ```bash
 ./setup.sh                  # once: installs the packages and creates config.toml  (Windows: setup.bat)
 mt dir "/path/to/Music"     # point it at your library
-mt auto --dry-run           # preview everything; then run  mt auto
+mt auto                     # looks at your library, shows what it found and asks what to do
 ```
 
 Works on macOS, Linux and Windows 10/11. Windows differences are collected under "Setup" and "Windows, macOS and Linux" below.
@@ -20,15 +20,17 @@ Set up the `mt` alias once (last section of "The `mt` command" below), then type
 | Type this | It does |
 |---|---|
 | `mt` | opens the menu |
-| `mt auto` | everything: tidy folders, then art, artist pictures and lyrics (asks once; `--dry-run` previews) |
-| `mt tidy` | merges duplicate folders and deletes junk (shows the list, asks first; `--dry-run` previews) |
+| `mt auto` | looks at your library, shows what it found for each step and asks what you want: tidy folders, remove duplicate songs, art, artist pictures, lyrics (tick the steps, then Preview or Apply) |
+| `mt tidy` (or `mt clean`) | merges duplicate folders and deletes junk (shows the list, asks first; `--dry-run` previews) |
 | `mt undo` | puts back what the last tidy moved |
+| `mt dupes --delete-strays` | keeps the copy of a song that sits in an album folder, removes the loose copies (previews first; add `--apply`) |
 | `mt lyrics` / `mt covers` / `mt artists` | find lyrics / add album art / find artist pictures |
 | `mt check` | one-screen health check |
 | `mt help COMMAND` | every option of one command |
 
-The older names (`all`, `art`, `layout`, `stats`, ...) still work, and small slips in flags are forgiven
-(`--dryrun`, `--dry_run` and `-n` all mean `--dry-run`; `-y` means `--yes`). A mistyped command gets a
+The older names (`all`, `art`, `layout`, `stats`, ...) still work, and small slips are forgiven: dashes in front
+of a command (`mt -clean`, `mt --tidy`) are ignored, and in flags `--dryrun`, `--dry_run` and `-n` all mean
+`--dry-run` (`-y` means `--yes`). A mistyped command gets a
 "Did you mean ...?".
 
 ## What's in the box
@@ -39,10 +41,10 @@ The older names (`all`, `art`, `layout`, `stats`, ...) still work, and small sli
 | `find_artist_art.py` | `mt artists` | Finds a picture for every artist (Deezer, with a YouTube fallback) and saves it as `<Artist>.jpg`, or `Artist/artist.jpg` |
 | `find_lyrics.py` | `mt lyrics` | Finds lyrics (lrclib.net) and saves original + romanization + English next to each song |
 | `fix_misidentified_tags.py` | `mt fix` | Fixes songs that MusicBrainz Picard tagged as the wrong album track, rebuilding tags from the filename |
-| `find_duplicates.py` | `mt dupes` | Reports songs that are probably the same recording saved twice (report only; nothing is deleted) |
+| `find_duplicates.py` | `mt dupes` | Reports songs that are probably the same recording saved twice; with `--delete-strays` it can remove the loose copies and keep the one in an album (previews first) |
 | `library_layout.py` | `mt tidy` | Finds duplicate album folders, junk and odd names; merges and cleans them with an undo file |
 | `organize_music.py` | `mt organize` | Sorts songs and companion lyrics/images into `Artist/Album/` folders for Jellyfin / Plex |
-| `run_all.py` | `mt auto` | Runs the tools above in the smart order, asking once |
+| `run_all.py` | `mt auto` | Looks at the library, asks what you want, then runs the tools above in the smart order |
 | `library_stats.py` | `mt check` | A one-screen, read-only health check |
 
 ## Requirements
@@ -98,27 +100,31 @@ previous runs.
   Music folder  /path/to/Music  ✓
   Art folders   YouTube  ✓
 
- ❯  1 Find songs without art    just lists them, changes nothing
-    2 Add missing art           search YouTube and add covers
-    3 Retry failed songs        songs that didn't get art last time
-    4 Find artist pictures      a photo for every artist, from Deezer
-    5 Find lyrics               translate foreign songs: original + romaji + English
-    6 Fix wrong tags            rebuild tags from filenames
-    7 Find duplicate songs      report only; nothing is ever deleted
-    8 Organize library          sort songs into Artist/Album for Jellyfin
-    9 All-in-one run            art + artist pictures + lyrics in one go
-   10 Library stats             one-screen health check, read-only
-   11 Check and tidy folders    duplicate albums, junk files; merge them all in one go
-   12 Folders                   change which folders are used
-   13 Settings                  matching, cropping, tag options…
-   14 Logs                      see what previous runs did
-   15 Help                      all commands
+ ❯  1 Do it all for me    looks at your library, shows what it found, asks what to do
+    2 Tidy my files       junk, duplicate folders and songs, folder layout, wrong tags
+    3 Add what's missing  album art, artist pictures, lyrics
+    4 Check my library   health check and lists of what's missing, changes nothing
+    5 Folders             change which folders are used
+    6 Settings            matching, cropping, tag options…
+    7 Logs                see what previous runs did
+    8 Help                all commands
       Quit
 ```
 
 The main menu has a colour-faded title and a cat that listens along. In a narrow window the cat steps
 aside. To turn the animation off set `MUSIC_TOOLS_NO_ANIMATION=1` (and `NO_COLOR=1` for no colours).
 Every run is saved to `logs/` (the last 200 are kept; turn off with `save_logs = false`).
+
+The menu is organised by what you want to do with your files rather than by tool:
+
+- **Do it all for me** looks at your library first (read-only), says what it found for each step ("37 of 410
+  artists have no picture", "12 loose copies of songs that are also in an album") and ticks the steps that have
+  something to do. Removing songs, fixing tags and sorting folders are never ticked for you. Below the steps are
+  **Preview only (dry run)** and **Apply the changes without asking again**.
+- **Tidy my files**: clean up junk and duplicate folders, remove duplicate songs, sort into Artist/Album folders,
+  fix wrong tags, undo the last tidy.
+- **Add what's missing**: album art, artist pictures, lyrics, retry the songs that failed.
+- **Check my library**: the health check, and lists of what's missing (changes nothing).
 
 Everything is also available as direct commands; `mt help` lists them all.
 
@@ -436,8 +442,7 @@ filter asks for confirmation.
 
 Finds songs that are probably the same recording saved more than once —
 downloaded twice into different folders, or in different formats/bitrates.
-Report only: nothing is ever deleted, moved or changed. You decide what (if
-anything) to remove yourself.
+On its own it only reports: nothing is deleted, moved or changed.
 
 Songs are grouped by artist and a cleaned-up title (YouTube upload noise and
 deliberate variant words like "sped up"/"slowed"/"nightcore" stripped, so two
@@ -451,7 +456,26 @@ python3 find_duplicates.py                  # duplicates.folders from config.tom
 python3 find_duplicates.py "/some/folder"   # just this folder
 python3 find_duplicates.py --tolerance 1.5  # how close two lengths must be (seconds)
 python3 find_duplicates.py --report dupes.txt
+mt dupes --delete-strays                    # preview: which loose copies would go
+mt dupes --delete-strays --apply            # remove them (asks first; --yes skips the question)
 ```
+
+**Removing the loose copies** (`--delete-strays`). A copy that sits inside an `Artist/Album/` folder is kept; the
+same song loose in the music folder or directly in an artist folder is removed, together with the lyrics and
+cover files named after it. Only groups that have both kinds are touched, and only by these rules:
+
+- a group with no copy in an album folder is left alone (nothing says which one to prefer), and so is a group
+  where every copy is in an album;
+- a copy outside the music folder is never touched;
+- a loose lossless file (`.flac`, `.wav`) is held back when every album copy is lossy, so a better recording
+  is never traded for a worse one. It is listed as `held`;
+- nothing changes without `--apply`, and it asks first (`--yes` skips the question; without a terminal and
+  without `--yes` it refuses).
+
+On a Mac the loose copies are moved to the Trash, so they can be put back; on Windows and Linux they are
+deleted for good, and the question says so. Either way the list of what was removed (and which copy was kept)
+is saved to `logs/duplicates_removed_<time>.txt`. `mt auto --delete-strays` does it as one step of the pipeline,
+after the folders are tidy and before art and lyrics are fetched.
 
 ## organize_music.py  (`mt organize`)
 
@@ -486,22 +510,48 @@ mt organize --no-artist-art                 # don't copy artist photo to folder.
 
 ## run_all.py  (`mt auto`)
 
-Runs your cleanup pipeline sequentially in one automated pass:
+Runs your cleanup pipeline sequentially in one pass:
 
 0. **Tidy folders**: delete junk, move `.lrc.bak` files, merge duplicate albums, only if the library has some (skipped when you name folders or pass `--no-layout`)
 1. *(Optional)* **Tags**: Fix misidentified tags from filenames (`--tags`)
-2. **Album art**: Search YouTube and embed missing cover art (`--auto`)
-3. **Artist pictures**: Download artist photos from Deezer / YouTube (`--auto`)
-4. **Lyrics**: Fetch, romanize, and translate lyrics from lrclib.net
-5. *(Optional)* **Organize**: Sort files and companion lyrics into `Artist/Album/` (`--organize`)
+2. *(Optional)* **Duplicate songs**: remove the loose copies of songs that also sit in an album folder (`--delete-strays`)
+3. **Album art**: Search YouTube and embed missing cover art (`--auto`)
+4. **Artist pictures**: Download artist photos from Deezer / YouTube (`--auto`)
+5. **Lyrics**: Fetch, romanize, and translate lyrics from lrclib.net
+6. *(Optional)* **Organize**: Sort files and companion lyrics into `Artist/Album/` (`--organize`)
+
+**Typed on its own in a terminal, `mt auto` asks what you want.** It first looks at the library (read-only, no
+network: folder names, tags, and which art, pictures and lyrics exist), then shows one checklist with what it
+found next to each step:
+
+```
+    1 [x] Tidy folders                            3 duplicate album folders, 41 junk files
+    2 [ ] Remove loose duplicate songs            12 loose copies (84.1 MB) go to the Trash; the album copies stay
+    3 [ ] Fix wrong tags from filenames           rebuild Artist and Title from 'Artist - Title'
+    4 [x] Add missing cover art                   212 of 1,904 songs have none
+    5 [x] Find artist pictures                    37 of 410 artists have none
+    6 [x] Find and translate lyrics               1,904 songs to check (English ones are skipped)
+    7 [ ] Sort songs into Artist/Album folders    for Jellyfin, Plex or Navidrome
+    8 [ ] Preview only (dry run)                  show what would happen, change nothing
+    9 [ ] Apply the changes without asking again  skip the final yes/no question
+```
+
+Steps with something to do start ticked, steps with nothing to do start unticked. Removing songs, fixing tags
+and sorting are never ticked for you, even when the scan found work for them. Tick **Preview only** to see
+what would happen (nothing is changed), or **Apply** to skip the last "change your files?" question; with
+neither, it shows the plan and asks once. Ticking both is refused.
+
+Any option on the command line, or no terminal (a script, cron), skips the questions and does exactly what
+you typed, as before.
 
 ```bash
-mt auto                                      # tidy folders (if needed) + art + artist pictures + lyrics; asks once
-mt auto --yes                                # same, no question asked
+mt auto                                      # look, ask what to do, then run it
+mt auto --yes                                # no questions: tidy folders (if needed) + art + artist pictures + lyrics
 mt auto --no-layout                          # skip the folder tidy step
+mt auto --delete-strays                      # also remove loose copies of songs that are in an album folder
 mt auto --organize                           # full pass: art + artists + lyrics + folder organization
 mt auto --tags --organize                    # tags + art + artists + lyrics + organize
-mt auto --dry-run                            # preview all steps safely
+mt auto --dry-run                            # preview all steps safely, no questions
 mt auto "YouTube" --organize                 # process and organize a specific folder
 ```
 

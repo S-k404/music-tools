@@ -6,12 +6,17 @@ Run the entire music cleanup pipeline in one go, in the order that makes each st
   1. Tidy folders: delete junk, move .lrc.bak files away, merge duplicate album folders
      (only when the library actually has some; whole library only, so skipped when you name folders)
   2. (Optional) Tags: fix misidentified tags from filenames (--tags)
-  3. Album art: add missing cover art from YouTube
-  4. Artist pictures: download artist photos from Deezer / YouTube
-  5. Lyrics: fetch, romanize, and translate lyrics from lrclib.net
-  6. (Optional) Organize: sort songs into Artist/Album/ folders for Jellyfin (--organize)
+  3. (Optional) Duplicate songs: remove the loose copies of songs that also sit in an album folder
+     (--delete-strays; moved to the Trash on a Mac, deleted elsewhere)
+  4. Album art: add missing cover art from YouTube
+  5. Artist pictures: download artist photos from Deezer / YouTube
+  6. Lyrics: fetch, romanize, and translate lyrics from lrclib.net
+  7. (Optional) Organize: sort songs into Artist/Album/ folders for Jellyfin (--organize)
 
 Features:
+  - Typed on its own in a terminal, it first looks at your library (read-only), tells you what it found for each
+    step and lets you tick the ones you want, with Preview and Apply boxes at the end. Any option on the command
+    line, or no terminal (scripts, cron), skips those questions and runs exactly what you asked for.
   - Shows the plan and asks once before changing anything (--yes skips the question).
   - Hands-free by default (--auto on art tools so it never hangs waiting for user input).
   - Dry run mode (--dry-run) previews all steps without modifying files.
@@ -24,6 +29,7 @@ Usage:
   python3 run_all.py --tags --organize    # tags + everything above + organize
   python3 run_all.py --dry-run            # preview everything
   python3 run_all.py --yes                # no question asked (for scripts and cron)
+  python3 run_all.py --delete-strays      # also remove loose copies of songs that are in an album folder
   python3 run_all.py "YouTube"            # run on a specific folder
 """
 
@@ -60,6 +66,15 @@ def confirm(question: str) -> bool:
     return input(f"  {question} [y/N] ").strip().lower() in ("y", "yes")
 
 
+def wants_chooser(args, parser) -> bool:
+    """`mt auto` typed on its own in a terminal: ask what to do. Any option, or no terminal, means just do it."""
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return False
+    given = {k: v for k, v in vars(args).items() if k != "config"}
+    plain = {k: v for k, v in vars(parser.parse_args([])).items() if k != "config"}
+    return given == plain
+
+
 def main(argv: list = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
@@ -74,6 +89,8 @@ def main(argv: list = None) -> int:
     parser.add_argument("--no-layout", action="store_true", help="Skip tidying junk and duplicate album folders")
     parser.add_argument("--organize", action="store_true", help="Organize files into Artist/Album folders for Jellyfin")
     parser.add_argument("--tags", action="store_true", help="Rebuild misidentified tags from filenames first")
+    parser.add_argument("--delete-strays", action="store_true",
+                        help="Remove loose copies of songs that also sit in an Artist/Album folder (Trash on a Mac)")
     parser.add_argument("--no-art", action="store_true", help="Skip album art")
     parser.add_argument("--no-artists", action="store_true", help="Skip artist pictures")
     parser.add_argument("--no-lyrics", action="store_true", help="Skip lyrics")
@@ -84,11 +101,25 @@ def main(argv: list = None) -> int:
 
     extra_config = ["--config", str(args.config)] if args.config else []
     extra_paths = list(args.paths)
+    work = None   # what the tidy step would do, once looked at
+
+    if wants_chooser(args, parser):
+        from auto_choose import choose
+        cfg = load_config(args.config)
+        work = tidy_work(cfg)
+        try:
+            if not choose(cfg, args, max(1, min(64, cfg["workers"])), work):
+                log(yellow("\n  Nothing was changed.\n"))
+                return 1
+        except KeyboardInterrupt:
+            log(yellow("\n  Stopped. Nothing was changed.\n"))
+            return 130
 
     steps: List[Tuple[str, str, List[str]]] = []
 
     if not (args.no_layout or extra_paths):   # tidying looks at the whole library, so naming folders skips it
-        work = tidy_work(load_config(args.config))
+        if work is None:
+            work = tidy_work(load_config(args.config))
         if work:
             tidy_args = [*extra_config, "--clean", "--merge-albums"]
             if not args.dry_run:
@@ -102,6 +133,13 @@ def main(argv: list = None) -> int:
         tag_args.append("--only-severe")
         tag_args.extend(extra_paths)
         steps.append(("tags", "Fix misidentified tags from filenames", tag_args))
+
+    if args.delete_strays:   # after the folders are tidy and the tags right, before anything is fetched for them
+        stray_args = [*extra_config, "--delete-strays"]
+        if not args.dry_run:
+            stray_args += ["--apply", "--yes"]   # the one question below covers it
+        stray_args.extend(extra_paths)
+        steps.append(("duplicates", "Remove loose copies of songs that are also in an album folder", stray_args))
 
     if not args.no_art:
         art_args = [*extra_config]
@@ -150,7 +188,10 @@ def main(argv: list = None) -> int:
         log(f"  {bold(str(i))}. {cyan(title)}")
     log("")
 
-    if not (args.dry_run or args.yes) and not confirm("Run these steps and change your files?"):
+    question = "Run these steps and change your files?"
+    if args.delete_strays:
+        question = "Run these steps and remove the loose duplicate songs?"
+    if not (args.dry_run or args.yes) and not confirm(question):
         log(yellow("\n  Nothing was changed. Add --yes to run without asking, or --dry-run to preview.\n"))
         return 1
 

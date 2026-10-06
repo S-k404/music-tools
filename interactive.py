@@ -3,6 +3,7 @@
 import copy
 import glob
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -159,6 +160,14 @@ def _read_key_posix(timeout):
     return ch.decode(errors="ignore")
 
 
+_ANSI_CODES = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+HINT_COLUMN_MAX = 44   # a very long label doesn't push every hint off a narrow screen
+
+
+def _shown_len(text: str) -> int:
+    return len(_ANSI_CODES.sub("", text))
+
+
 def _render(title, header, rows, cursor, footer, big=False, tick=None, redraw=False):
     if big:
         out = ["", *banner(tick), ""]
@@ -167,14 +176,15 @@ def _render(title, header, rows, cursor, footer, big=False, tick=None, redraw=Fa
     out += header
     if header:
         out.append("")
+    column = min(max((_shown_len(label) for label, hint in rows if hint), default=0), HINT_COLUMN_MAX)
     for i, (label, hint) in enumerate(rows):
         num = dim(f"{i + 1:>2}") if i < 9 else "  "
         if i == cursor:
             line = f" {cyan('❯')} {num} {bold(label)}"
         else:
             line = f"   {num} {label}"
-        if hint:
-            line += "  " + dim(hint)
+        if hint:   # hints line up in one column
+            line += " " * (2 + max(0, column - _shown_len(label))) + dim(hint)
         out.append(line)
     out += ["", dim(footer)]
     if redraw and ANSI:
@@ -374,20 +384,11 @@ class App:
         cursor = 0
         while True:
             cfg = self.cfg
-            failed = self.failed_count()
             rows = [
-                ("Find songs without art", "just lists them, changes nothing"),
-                ("Add missing art", "search YouTube and add covers"),
-                (f"Retry failed songs ({failed})" if failed else dim("Retry failed songs"),
-                 "songs that didn't get art last time" if failed else "nothing to retry"),
-                ("Find artist pictures", "a photo for every artist, from Deezer"),
-                ("Find lyrics", "translate foreign songs: original + romaji + English"),
-                ("Fix wrong tags", "rebuild tags from filenames"),
-                ("Find duplicate songs", "report only — nothing is ever deleted"),
-                ("Organize library", "sort songs into Artist/Album for Jellyfin"),
-                ("All-in-one run", "art + artist pictures + lyrics in one go"),
-                ("Library stats", "one-screen health check, read-only"),
-                ("Check and tidy folders", "duplicate albums, junk files — merge them all in one go"),
+                ("Do it all for me", "looks at your library, shows what it found, asks what to do"),
+                ("Tidy my files", "junk, duplicate folders and songs, folder layout, wrong tags"),
+                ("Add what's missing", "album art, artist pictures, lyrics"),
+                ("Check my library", "health check and lists of what's missing, changes nothing"),
                 ("Folders", "change which folders are used"),
                 ("Settings", "matching, cropping, tag options…"),
                 ("Logs", "see what previous runs did"),
@@ -399,9 +400,60 @@ class App:
                 clear()
                 return
             cursor = choice
-            [self.find_missing, self.add_art, self.retry, self.artists, self.lyrics, self.fix_tags,
-             self.duplicates, self.organize, self.run_all, self.stats, self.layout, self.folders, self.settings,
+            [self.run_all, self.tidy, self.add_missing, self.check, self.folders, self.settings,
              self.logs, self.help][choice]()
+
+    def submenu(self, title, build):
+        """A screen of choices. `build()` gives [(label, hint, what to do)] and is called again after each choice,
+        so a count in a hint (songs to retry) is always current."""
+        cursor = 0
+        while True:
+            entries = build()
+            choice = menu(title, [(label, hint) for label, hint, _ in entries], self.status_lines(self.cfg), cursor)
+            if choice is None:
+                return
+            cursor = choice
+            entries[choice][2]()
+
+    # ---- the goal screens
+    def tidy(self):
+        self.submenu("Tidy my files", lambda: [
+            ("Clean up junk and duplicate folders", "merge duplicate albums, delete ._ files, empty folders; asks first, can undo",
+             self.layout),
+            ("Remove duplicate songs", "keep the copy inside an album, remove the loose ones", self.duplicates),
+            ("Sort songs into Artist/Album folders", "for Jellyfin, Plex or Navidrome", self.organize),
+            ("Fix wrong tags", "rebuild tags from filenames", self.fix_tags),
+            ("Undo the last tidy", "puts every moved file back",
+             lambda: run_and_wait("layout", ["--undo", "--apply"], self.explicit)),
+        ])
+
+    def add_missing(self):
+        def build():
+            failed = self.failed_count()
+            return [
+                ("Album art", "search YouTube and add covers", self.add_art),
+                ("Artist pictures", "a photo for every artist, from Deezer", self.artists),
+                ("Lyrics", "translate foreign songs: original + romaji + English", self.lyrics),
+                (f"Retry songs that failed ({failed})" if failed else dim("Retry songs that failed"),
+                 "songs that didn't get art last time" if failed else "nothing to retry", self.retry),
+            ]
+        self.submenu("Add what's missing", build)
+
+    def check(self):
+        def listing(tool, flag, title, section):
+            def run():
+                scope = self.pick_scope(title, section)
+                if scope is not None:
+                    run_and_wait(tool, [flag, *scope] if flag else scope, self.explicit)
+            return run
+        self.submenu("Check my library", lambda: [
+            ("Health check", "cover art, artist pictures, lyrics and tags at a glance", self.stats),
+            ("List songs without art", "changes nothing", self.find_missing),
+            ("List artists without a picture", "changes nothing",
+             listing("artists", "--list-missing", "Artists without a picture", "artist_art")),
+            ("List songs without lyrics", "changes nothing", listing("lyrics", "--list-missing", "Songs without lyrics", "lyrics")),
+            ("List duplicate songs", "changes nothing", listing("duplicates", None, "Duplicate songs", "duplicates")),
+        ])
 
     def failed_count(self):
         try:
@@ -596,10 +648,33 @@ class App:
 
     # ---- duplicates
     def duplicates(self):
-        scope = self.pick_scope("Find duplicate songs", "duplicates")
+        scope = self.pick_scope("Duplicate songs", "duplicates")
         if scope is None:
             return
-        run_and_wait("duplicates", scope, self.explicit)
+        ticked = [False, False, False]
+        while True:
+            ticked = checklist("Duplicate songs · options", [
+                ["Remove the loose copies", ticked[0], "keeps the copy inside an album; off = just list the duplicates"],
+                ["Preview only (dry run)", ticked[1], "show which copies would go, change nothing"],
+                ["Apply the changes to all", ticked[2], "really remove them (asks once more first)"],
+            ], "Start")
+            if ticked is None:
+                return
+            remove, preview, apply_now = ticked
+            if apply_now and preview:
+                flash(red("Pick either Preview (changes nothing) or Apply (removes them), not both."))
+            elif apply_now and not remove:
+                flash(red("Apply needs 'Remove the loose copies' ticked: the plain duplicate list never changes anything."))
+            else:
+                break
+        args = [*scope]
+        if remove:
+            args.append("--delete-strays")
+        if preview:
+            args.append("--dry-run")
+        if apply_now:
+            args.append("--apply")
+        run_and_wait("duplicates", args, self.explicit)
 
     # ---- organize
     def organize(self):
@@ -629,35 +704,8 @@ class App:
 
     # ---- all-in-one run
     def run_all(self):
-        opts = [
-            ["Tidy folders first", True, "delete junk, merge duplicate albums (only if there are some)"],
-            ["Add missing cover art", True, "YouTube thumbnails embedded into files"],
-            ["Find artist pictures", True, "downloaded from Deezer & YouTube"],
-            ["Find and translate lyrics", True, "synced/plain lyrics from lrclib.net"],
-            ["Organize into Artist/Album folders", True, "sort songs & sidecars for Jellyfin"],
-            ["Fix misidentified tags from filenames", False, "rebuild tags from Artist - Title"],
-            ["Preview only (dry run)", False, "preview all steps without changing files"],
-        ]
-        chosen = checklist("All-in-one run", opts, "Run all selected", self.status_lines(self.cfg))
-        if chosen is None:
-            return
-        do_tidy, do_art, do_artists, do_lyrics, do_organize, do_tags, dry_run = chosen
-        args = []
-        if not do_tidy:
-            args.append("--no-layout")
-        if dry_run:
-            args.append("--dry-run")
-        if not do_art:
-            args.append("--no-art")
-        if not do_artists:
-            args.append("--no-artists")
-        if not do_lyrics:
-            args.append("--no-lyrics")
-        if do_organize:
-            args.append("--organize")
-        if do_tags:
-            args.append("--tags")
-        run_and_wait("all", args, self.explicit)
+        """The tool looks at the library and asks what to do (steps, preview, apply) when it runs in a terminal."""
+        run_and_wait("all", [], self.explicit)
 
     # ---- library stats
     def stats(self):

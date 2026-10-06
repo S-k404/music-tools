@@ -46,6 +46,24 @@ class CliTests(unittest.TestCase):
         _, calls, _ = self.run_cli("undo", "-n")
         self.assertEqual(calls, [("layout", ["--undo"])])
 
+    def test_clean_means_tidy_with_or_without_dashes(self):
+        tidy = [("layout", ["--clean", "--merge-artists", "--merge-albums", "--apply"])]
+        for word in ("clean", "cleanup", "-clean", "--clean", "--tidy", "-tidy"):
+            code, calls, _ = self.run_cli(word)
+            self.assertEqual((code, calls), (0, tidy), word)
+        _, calls, _ = self.run_cli("-clean", "--dry-run")
+        self.assertEqual(calls, [("layout", ["--clean", "--merge-artists", "--merge-albums"])])
+        _, calls, _ = self.run_cli("--undo")
+        self.assertEqual(calls, [("layout", ["--undo", "--apply"])])
+        _, calls, _ = self.run_cli("help", "clean")
+        self.assertEqual(calls, [("layout", ["--help"])])
+
+    def test_dashes_in_front_of_something_that_is_not_a_command_are_not_guessed(self):
+        for word in ("-banana", "--dry-run", "-"):
+            code, calls, err = self.run_cli(word)
+            self.assertEqual((code, calls), (2, []), word)
+            self.assertIn("Unknown command", err)
+
     def test_flag_slips_are_forgiven(self):
         for slip in ("--dryrun", "--dry_run", "--Dry-Run", "-n"):
             _, calls, _ = self.run_cli("auto", slip)
