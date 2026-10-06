@@ -60,6 +60,21 @@ def tidy_work(cfg: dict) -> List[str]:
     return [plural(n, w) for n, w in found if n]
 
 
+# Steps that delete, rewrite or move files you already have get their own yes or no (art, artist pictures and
+# lyrics only add files). tool -> (what it does to your files, the question, what can be undone)
+CHANGES = {
+    "layout": ("merges duplicate album folders and deletes junk files",
+               "Really tidy the folders? An undo file is saved (deleted junk can't come back)."),
+    "tags": ("rewrites the tags inside songs whose tags look wrong",
+             "Really rewrite those tags? This changes the files themselves and can't be undone."),
+    "duplicates": ("removes the loose copies of songs that are also in an album folder",
+                   "Really remove the loose copies? They go to the Trash." if sys.platform == "darwin"
+                   else "Really delete the loose copies? They can't be brought back."),
+    "organize": ("moves and renames songs into Artist/Album folders",
+                 "Really move the songs into Artist/Album folders? This can't be undone automatically."),
+}
+
+
 def confirm(question: str) -> bool:
     if not sys.stdin.isatty():
         return False
@@ -188,12 +203,25 @@ def main(argv: list = None) -> int:
         log(f"  {bold(str(i))}. {cyan(title)}")
     log("")
 
-    question = "Run these steps and change your files?"
-    if args.delete_strays:
-        question = "Run these steps and remove the loose duplicate songs?"
-    if not (args.dry_run or args.yes) and not confirm(question):
-        log(yellow("\n  Nothing was changed. Add --yes to run without asking, or --dry-run to preview.\n"))
-        return 1
+    if not (args.dry_run or args.yes):
+        risky = [step for step in steps if step[0] in CHANGES]
+        if risky:
+            log("These steps delete, rewrite or move files you already have. Say yes or no to each one:\n")
+            for step in risky:
+                tool_id, title, _ = step
+                log(f"  {bold(title)}\n  {dim(CHANGES[tool_id][0])}")
+                if not confirm(CHANGES[tool_id][1]):
+                    steps.remove(step)
+                    log(yellow("  Skipped.\n"))
+                else:
+                    log("")
+            if not steps:
+                log(yellow("  Nothing was changed.\n"))
+                return 1
+            log("Running: " + ", ".join(cyan(title) for _, title, _ in steps) + "\n")
+        elif not confirm("Run these steps and change your files?"):
+            log(yellow("\n  Nothing was changed. Add --yes to run without asking, or --dry-run to preview.\n"))
+            return 1
 
     results = []
     for i, (tool_id, title, tool_args) in enumerate(steps, 1):

@@ -120,7 +120,7 @@ The menu is organised by what you want to do with your files rather than by tool
 - **Do it all for me** looks at your library first (read-only), says what it found for each step ("37 of 410
   artists have no picture", "12 loose copies of songs that are also in an album") and ticks the steps that have
   something to do. Removing songs, fixing tags and sorting folders are never ticked for you. Below the steps are
-  **Preview only (dry run)** and **Apply the changes without asking again**.
+  **Preview only (dry run)** and **Apply without asking again**.
 - **Tidy my files**: clean up junk and duplicate folders, remove duplicate songs, sort into Artist/Album folders,
   fix wrong tags, undo the last tidy.
 - **Add what's missing**: album art, artist pictures, lyrics, retry the songs that failed.
@@ -552,21 +552,35 @@ network: folder names, tags, and which art, pictures and lyrics exist), then sho
 found next to each step:
 
 ```
-    1 [x] Tidy folders                            3 duplicate album folders, 41 junk files
-    2 [ ] Remove loose duplicate songs            12 loose copies (84.1 MB) go to the Trash; the album copies stay
-    3 [ ] Fix wrong tags from filenames           rebuild Artist and Title from 'Artist - Title'
-    4 [x] Add missing cover art                   212 of 1,904 songs have none
-    5 [x] Find artist pictures                    37 of 410 artists have none
-    6 [x] Find and translate lyrics               1,904 songs to check (English ones are skipped)
-    7 [ ] Sort songs into Artist/Album folders    for Jellyfin, Plex or Navidrome
-    8 [ ] Preview only (dry run)                  show what would happen, change nothing
-    9 [ ] Apply the changes without asking again  skip the final yes/no question
+    1 [x] Tidy folders *                   3 duplicate album folders, 41 junk files
+    2 [ ] Remove loose duplicate songs *   12 loose copies (84.1 MB), to the Trash
+    3 [ ] Fix wrong tags from filenames *  rebuild Artist and Title from 'Artist - Title'
+    4 [x] Add missing cover art            212 of 1,904 songs have none
+    5 [x] Find artist pictures             37 of 410 artists have none
+    6 [x] Find and translate lyrics        1,904 songs to check (English ones are skipped)
+    7 [ ] Sort into Artist/Album folders * for Jellyfin, Plex or Navidrome
+    8 [ ] Preview only (dry run)           show what would happen, change nothing
+    9 [ ] Apply without asking again       skip the yes/no questions
 ```
 
 Steps with something to do start ticked, steps with nothing to do start unticked. Removing songs, fixing tags
-and sorting are never ticked for you, even when the scan found work for them. Tick **Preview only** to see
-what would happen (nothing is changed), or **Apply** to skip the last "change your files?" question; with
-neither, it shows the plan and asks once. Ticking both is refused.
+and sorting are never ticked for you, even when the scan found work for them.
+
+**Every step marked `*` asks its own yes or no before it runs**, because it deletes, rewrites or moves files you
+already have (art, artist pictures and lyrics only add files, so they don't ask):
+
+```
+  These steps delete, rewrite or move files you already have. Say yes or no to each one:
+
+  Tidy folders: 11 duplicate album folders, 12 junk files
+  merges duplicate album folders and deletes junk files
+  Really tidy the folders? An undo file is saved (deleted junk can't come back). [y/N]
+```
+
+Answering no skips just that step and the others carry on; if nothing is left to run, nothing changes.
+**Preview only** shows what would happen without changing anything or asking, and **Apply without asking again**
+skips all the questions (what `mt auto --yes` does for scripts and cron). Ticking both is refused. If only steps
+that add files are left, one "change your files?" question is asked instead.
 
 Any option on the command line, or no terminal (a script, cron), skips the questions and does exactly what
 you typed, as before.
