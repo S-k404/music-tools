@@ -12,7 +12,8 @@ import time
 from pathlib import Path
 
 from common import (ANSI, CHOICES, COLOR, DEFAULTS, HERE, IS_WINDOWS, LOG_DIR, bold, clean_path, config_path, cyan,
-                    dim, green, open_path, read_raw_config, red, resolve, save_config, shell_quote, yellow)
+                    dim, green, open_path, read_raw_config, red, resolve, save_config, shell_quote, text_width,
+                    yellow)
 
 try:
     import termios
@@ -161,14 +162,44 @@ def _read_key_posix(timeout):
 
 
 _ANSI_CODES = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
-HINT_COLUMN_MAX = 44   # a very long label doesn't push every hint off a narrow screen
+HINT_COLUMN_MAX = 36   # a very long label doesn't push every hint off a narrow screen
 
 
 def _shown_len(text: str) -> int:
-    return len(_ANSI_CODES.sub("", text))
+    return text_width(_ANSI_CODES.sub("", text))
+
+
+def _fit_line(line: str, width: int) -> str:
+    """Cut a line (colour codes and all) to `width` columns, ending in … when something was cut, so a long hint or
+    path never wraps and throws off the redraw."""
+    if _shown_len(line) <= width:
+        return line
+    out, used, i = [], 0, 0
+    while i < len(line):
+        code = _ANSI_CODES.match(line, i)
+        if code:
+            out.append(code.group(0))
+            i = code.end()
+            continue
+        w = text_width(line[i])
+        if used + w > width - 1:
+            break
+        out.append(line[i])
+        used += w
+        i += 1
+    return "".join(out) + "…" + ("\x1b[0m" if ANSI else "")
+
+
+def _window(total: int, cursor: int, room: int) -> tuple:
+    """(first, last+1) of the rows to show so the cursor row is visible when only `room` of `total` fit."""
+    if total <= room:
+        return 0, total
+    first = min(max(0, cursor - room // 2), total - room)
+    return first, first + room
 
 
 def _render(title, header, rows, cursor, footer, big=False, tick=None, redraw=False):
+    size = shutil.get_terminal_size((80, 24))
     if big:
         out = ["", *banner(tick), ""]
     else:
@@ -177,6 +208,7 @@ def _render(title, header, rows, cursor, footer, big=False, tick=None, redraw=Fa
     if header:
         out.append("")
     column = min(max((_shown_len(label) for label, hint in rows if hint), default=0), HINT_COLUMN_MAX)
+    lines = []
     for i, (label, hint) in enumerate(rows):
         num = dim(f"{i + 1:>2}") if i < 9 else "  "
         if i == cursor:
@@ -185,8 +217,18 @@ def _render(title, header, rows, cursor, footer, big=False, tick=None, redraw=Fa
             line = f"   {num} {label}"
         if hint:   # hints line up in one column
             line += " " * (2 + max(0, column - _shown_len(label))) + dim(hint)
-        out.append(line)
+        lines.append(line)
+    room = size.lines - len(out) - 3   # the blank line, the footer, and one spare so the screen never scrolls
+    if len(lines) > room:   # a list taller than the window scrolls with the cursor
+        first, last = _window(len(lines), cursor, max(3, room - 2))
+        above, below = first, len(lines) - last
+        out += [dim(f"      ↑ {above} more") if above else ""]
+        out += lines[first:last]
+        out += [dim(f"      ↓ {below} more") if below else ""]
+    else:
+        out += lines
     out += ["", dim(footer)]
+    out = [_fit_line(line, size.columns - 1) for line in out]
     if redraw and ANSI:
         # overwrite in place (no flicker): home, each line + clear-to-end, clear below
         sys.stdout.write("\x1b[H" + "\n".join(line + "\x1b[K" for line in out) + "\x1b[J")
