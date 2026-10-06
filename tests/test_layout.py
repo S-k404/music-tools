@@ -255,6 +255,73 @@ class MergeTests(LayoutTestCase):
         self.assertTrue(saved.is_file())
 
 
+class UndoSafetyTests(LayoutTestCase):
+    """The undo file exists even if the run dies half way, and an undo survives a file that won't go back."""
+
+    TWO_GROUPS = {"Ado/Show/01.flac": "1", "Ado/Ado - Show/02.flac": "2",
+                  "Bob/Hits/01.flac": "b1", "Bob/Bob - Hits/02.flac": "b2"}
+
+    def test_a_run_killed_half_way_can_still_be_undone_up_to_that_point(self):
+        self.make(self.TWO_GROUPS)
+        before = snapshot(self.root)
+        s = self.scan()
+        calls = []
+        real = ll.remove_empty_dirs
+
+        def dies_on_the_second_folder(dirs):
+            calls.append(1)
+            if len(calls) == 2:
+                raise KeyboardInterrupt
+            return real(dirs)
+
+        with mock.patch.object(ll, "remove_empty_dirs", side_effect=dies_on_the_second_folder), \
+                self.assertRaises(KeyboardInterrupt):
+            ll.do_merge(s, s.albums, apply=True)
+        saved = sorted(self.logs.glob("layout_undo_*.json"))
+        self.assertEqual(len(saved), 1)   # written before the second folder, not only at the end
+        self.assertTrue(json.loads(saved[0].read_text(encoding="utf-8"))["ops"])
+        ll.do_undo(saved[0], apply=True)
+        self.assertEqual(snapshot(self.root), before)
+
+    def test_saving_again_updates_the_same_file(self):
+        self.make(self.TWO_GROUPS)
+        s = self.scan()
+        rec = ll.do_merge(s, s.albums, apply=True)
+        first = rec.save()
+        self.assertEqual(rec.save(), first)
+        self.assertEqual(len(list(self.logs.glob("layout_undo_*.json"))), 1)
+
+    def test_one_file_that_will_not_go_back_does_not_stop_the_rest_and_the_undo_file_stays(self):
+        self.make(self.TWO_GROUPS)
+        before = snapshot(self.root)
+        s = self.scan()
+        saved = ll.do_merge(s, s.albums, apply=True).save()
+        real = ll.shutil.move
+        seen = []
+
+        def first_one_fails(src, dest):
+            seen.append(1)
+            if len(seen) == 1:
+                raise OSError(13, "Permission denied")
+            return real(src, dest)
+
+        with mock.patch.object(ll.shutil, "move", side_effect=first_one_fails):
+            ll.do_undo(saved, apply=True)
+        self.assertEqual(len(seen), 2)                     # it went on to the second file
+        self.assertTrue(saved.is_file())                   # not renamed to .undone: run --undo again for the rest
+        ll.do_undo(saved, apply=True)
+        self.assertEqual(snapshot(self.root), before)
+        self.assertTrue(saved.with_name(saved.stem + ".undone.json").is_file())
+
+    def test_an_unreadable_undo_file_is_a_clear_message_not_a_traceback(self):
+        bad = self.logs / "layout_undo_x.json"
+        self.logs.mkdir(parents=True)
+        bad.write_text("{not json", encoding="utf-8")
+        with self.assertRaises(SystemExit) as caught:
+            ll.do_undo(bad, apply=True)
+        self.assertIn("Can't read the undo file", str(caught.exception))
+
+
 class SkipFolderTests(LayoutTestCase):
     def test_artist_pictures_and_backups_are_not_treated_as_artists(self):
         self.make({"Artist Art/Ado.jpg": "p", "Backups/x/y.lrc.bak": "b", "Real/Album/a.mp3": "a"})

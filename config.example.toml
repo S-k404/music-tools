@@ -147,7 +147,8 @@ fallback_album = "Singles"
 # Automatically find the real studio album for loose songs before falling back to Singles.
 auto_album = true
 
-# Automatically copy the artist's photo (from Artist Art/) to <Artist>/folder.jpg for Jellyfin and Plex.
+# Automatically copy the artist's photo (from Artist Art/) to <Artist>/folder.jpg and <Artist>/artist.jpg
+# (Jellyfin and Plex use folder.jpg; Plex and Navidrome use artist.jpg).
 copy_artist_art = true
 
 # Remove empty source directories after all songs inside them have been moved.

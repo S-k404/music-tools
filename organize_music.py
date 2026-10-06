@@ -64,6 +64,10 @@ SIDECAR_EXTS = {".lrc", ".bak", ".html", ".txt", ".jpg", ".jpeg", ".png", ".webp
 # Linux and macOS allow 255 bytes in one name, and the file name itself needs room too, so a folder name that a
 # messy tag made huge is cut here instead of failing with "File name too long"
 MAX_NAME_BYTES = 200
+# "Disc 1", "CD2", "Disk 03": a folder inside an album that players are happy with (Jellyfin and Plex read the disc
+# number from the tags too), so songs sitting in one are left there instead of being flattened into the album folder,
+# where the same track number on disc 2 would only collide
+DISC_FOLDER_RE = re.compile(r"^(?:disc|disk|cd)[\s._-]*\d+\b", re.IGNORECASE)
 EDITION_RE = re.compile(r"\s+(?:deluxe|expanded|remaster(?:ed)?|bonus(?:\s+tracks?)?)\b", re.IGNORECASE)
 COMMON_IMAGES = {"folder.jpg", "cover.jpg", "artist.jpg", "album.jpg", "thumb.jpg"}
 ALBUM_CACHE_FILE = HERE / "album_cache.json"
@@ -480,6 +484,14 @@ def plan_move(
         except (OSError, ValueError):
             pass
 
+    if not is_noop and DISC_FOLDER_RE.match(audio_path.parent.name):
+        try:
+            is_noop = audio_path.parent.parent.samefile(dest_dir)   # already in its album, in a disc folder
+        except OSError:
+            pass
+        if is_noop:
+            dest_audio = audio_path
+
     # A different file at the destination, or one an earlier song in this same run is already going to: take a
     # free name instead. (Plans are all made before anything moves, so "does it exist yet?" alone would let two
     # same-named songs pick the same destination and the second would replace the first.)
@@ -553,13 +565,13 @@ def execute_plan(plan: MovePlan, dry_run: bool = False) -> bool:
 
 
 def copy_jellyfin_artist_art(music_dir: Path, artist_name: str, artist_art_dir: Path, dry_run: bool = False) -> bool:
-    """Ensure <music_dir>/<Artist>/folder.jpg exists by copying from Artist Art."""
+    """Ensure <music_dir>/<Artist>/ has the artist's picture as folder.jpg (Jellyfin, Plex) and artist.jpg (Plex,
+    Navidrome, which only looks for artist.*), copied from the artist-picture folder. A picture already there is
+    never replaced."""
     artist_dir = match_existing_dir(music_dir, artist_name)
     if not dry_run and not artist_dir.is_dir():
         return False
-    target_folder_jpg = artist_dir / "folder.jpg"
-    target_artist_jpg = artist_dir / "artist.jpg"
-    if target_folder_jpg.exists() or target_artist_jpg.exists():
+    if any((artist_dir / f"{base}{ext}").exists() for base in ("folder", "artist") for ext in (".jpg", ".jpeg", ".png")):
         return False
 
     # Look for matching picture in artist_art_dir
@@ -586,9 +598,11 @@ def copy_jellyfin_artist_art(music_dir: Path, artist_name: str, artist_art_dir: 
 
     if matched_cand:
         if not dry_run:
+            ext = ".png" if matched_cand.suffix.lower() == ".png" else ".jpg"   # a PNG isn't saved under a .jpg name
             try:
                 artist_dir.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(str(matched_cand), str(target_folder_jpg))
+                for base in ("folder", "artist"):
+                    shutil.copyfile(str(matched_cand), str(artist_dir / f"{base}{ext}"))
             except OSError:
                 return False
         return True
@@ -635,7 +649,7 @@ def main(argv: list = None) -> int:
     parser.add_argument("--fallback-artist", help="Folder name when artist cannot be found (default: Unknown Artist)")
     parser.add_argument("--fallback-album", help="Folder name when album cannot be found (default: Singles; '' for flat)")
     parser.add_argument("--no-auto-album", action="store_true", help="Do not search online for missing album names")
-    parser.add_argument("--no-artist-art", action="store_true", help="Do not copy artist picture to folder.jpg")
+    parser.add_argument("--no-artist-art", action="store_true", help="Do not copy artist picture to folder.jpg and artist.jpg")
     parser.add_argument("--no-clean", action="store_true", help="Do not clean empty source directories")
     parser.add_argument("--no-progress", action="store_true", help="Hide progress bar")
     parser.add_argument("--config", help="Path to config.toml")
@@ -775,7 +789,7 @@ def main(argv: list = None) -> int:
             if copy_jellyfin_artist_art(music_dir, artist, artist_art_dir, dry_run=args.dry_run):
                 art_copied += 1
                 prefix = yellow("[dry-run] Would copy") if args.dry_run else green("Copied")
-                log(f"  {dim('♫')} {prefix} artist photo {dim('→')} {artist}/folder.jpg (for Jellyfin)")
+                log(f"  {dim('♫')} {prefix} artist photo {dim('→')} {artist}/folder.jpg + artist.jpg (Jellyfin, Plex, Navidrome)")
 
     # Clean empty directories
     cleaned_count = 0
@@ -791,7 +805,7 @@ def main(argv: list = None) -> int:
     if auto_album_count:
         log(f"  {green('Albums detected')}: {auto_album_count} loose songs matched to official albums")
     if art_copied:
-        log(f"  {green('Artist photos')}: {art_copied} folder.jpg set up for Jellyfin")
+        log(f"  {green('Artist photos')}: {art_copied} folder.jpg + artist.jpg set up for Jellyfin, Plex and Navidrome")
     if cleaned_count:
         log(f"  {dim('Cleaned')}: {cleaned_count} empty directories removed")
     if warn_count:

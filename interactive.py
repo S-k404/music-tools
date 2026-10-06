@@ -725,7 +725,7 @@ class App:
             return
         opts = [
             ["Auto-detect albums for loose songs", True, "finds official album instead of Singles"],
-            ["Copy artist picture to folder.jpg", True, "for Jellyfin / Plex support"],
+            ["Copy artist picture to the artist folder", True, "folder.jpg + artist.jpg: Jellyfin, Plex, Navidrome"],
             ["Clean empty folders after moving", True, "removes old empty source folders"],
             ["Preview only (dry run)", False, "show what would move without moving anything"],
         ]
