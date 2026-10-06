@@ -18,6 +18,10 @@ slowed edit share a title but have a different length, so they're correctly neve
 flagged together. Songs with no usable artist tag, or whose length can't be read,
 are left out rather than guessed about.
 
+With --pick you choose yourself: every copy of every duplicate song is listed in one screen, the copies the
+rule above would remove start ticked, and you tick or untick any copy before it is removed (at least one copy
+of each song always stays). It needs a terminal and asks before it removes anything.
+
 Usage:
   python3 find_duplicates.py                  # duplicates.folders from config.toml
   python3 find_duplicates.py "/some/folder"   # just this folder
@@ -25,10 +29,12 @@ Usage:
   python3 find_duplicates.py --report dupes.txt
   python3 find_duplicates.py --delete-strays          # preview: which loose copies would go
   python3 find_duplicates.py --delete-strays --apply  # remove them (asks first; --yes skips the question)
+  python3 find_duplicates.py --pick                   # tick the copies to remove yourself
 """
 
 import argparse
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -352,6 +358,76 @@ def confirm(question: str) -> bool:
     return input(f"\n  {question} [y/N] ").strip().lower() in ("y", "yes")
 
 
+def n_copies(n: int) -> str:
+    return "1 copy" if n == 1 else f"{n} copies"
+
+
+def remove_and_report(plans: list, root: Path, assume_yes: bool, describe) -> int:
+    """Ask, remove what the plans say (to the Trash on a Mac), and say what happened. `describe(n)` names n copies."""
+    count = sum(len(p.delete) for p in plans)
+    question = (f"Really move {describe(count)} to the Trash?" if uses_trash()
+                else f"Really delete {describe(count)}? They can't be brought back.")
+    if not assume_yes and not confirm(question):
+        sys.exit("Nothing was changed.")
+    removed, failed = delete_strays(plans, root)
+    if removed:
+        print(f"\n  {green('✓')} {'Moved' if uses_trash() else 'Deleted'} {describe(len(removed))}"
+              + (" to the Trash" if uses_trash() else "") + (f", {failed} failed" if failed else "")
+              + dim(f"   (list saved to {save_removed_list(removed)})"))
+    elif failed:
+        print(f"\n  {red('✗')} Nothing could be removed ({failed} failed)")
+    print()
+    return 1 if failed else 0
+
+
+def fit_end(text: str, width: int) -> str:
+    """Cut a path from the left so the file name stays ('…Album/Song.mp3'), padded to `width` columns."""
+    if text_width(text) > width:
+        while text and text_width(text) > width - 1:
+            text = text[1:]
+        text = "…" + text
+    return text + " " * (width - text_width(text))
+
+
+def where_is(path: Path, root: Path) -> str:
+    return {True: "in an album", False: "loose", None: "outside the music folder"}[in_album_folder(path, root)]
+
+
+def pick_copies(groups: list, root: Path, preticked: set):
+    """One list of every copy of every duplicate song; the user ticks the ones to remove. Returns [(group index,
+    record)] for the ticked copies, or None if they backed out. A song can't have all of its copies ticked."""
+    from interactive import checklist, flash   # only needed here, and only with a terminal
+    rows = [(gi, m) for gi, g in enumerate(groups) for m in sorted(g, key=lambda m: str(m.path))]
+    ticked = [id(m) in preticked for _, m in rows]
+    header = [f"{plural(len(groups), 'duplicate song')}, {n_copies(len(rows))}. Ticked = what the automatic rule would remove.",
+              dim("Space ticks a copy to delete. At least one copy of each song always stays.")]
+    width = max(22, min(46, shutil.get_terminal_size((80, 24)).columns - 52))   # what is left of the line is for the hint
+    while True:
+        options = [[fit_end(shown_path(m.path, root), width), on,
+                    f"{where_is(m.path, root)} · {mmss(m.duration)} · {human_size(m.size)}"]
+                   for (_, m), on in zip(rows, ticked)]
+        states = checklist("Duplicate songs · tick the copies to delete", options, "Delete the ticked copies", header)
+        if states is None:
+            return None
+        ticked = list(states)
+        all_gone = [gi for gi, g in enumerate(groups)
+                    if all(on for (gj, _), on in zip(rows, ticked) if gj == gi)]
+        if not all_gone:
+            return [(gi, m) for (gi, m), on in zip(rows, ticked) if on]
+        names = ", ".join(f"{groups[gi][0].artist} — {groups[gi][0].title}" for gi in all_gone[:3])
+        flash(red(f"Every copy is ticked for: {names}" + (f" and {len(all_gone) - 3} more" if len(all_gone) > 3 else "")
+                  + ".\nUntick one copy of each, or the song would be gone."))
+
+
+def plans_from_picks(groups: list, picked: list) -> list:
+    """StrayPlans for the copies chosen by hand: what is not picked is kept."""
+    by_group = {}
+    for gi, m in picked:
+        by_group.setdefault(gi, []).append(m)
+    return [StrayPlan([m for m in groups[gi] if all(m is not d for d in doomed)], doomed, [])
+            for gi, doomed in sorted(by_group.items())]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("paths", nargs="*", help="files/folders to check (default: duplicates.folders from the config)")
@@ -366,8 +442,15 @@ def main():
     ap.add_argument("--yes", action="store_true", help="don't ask before --apply")
     ap.add_argument("--dry-run", action="store_true",
                     help="preview only; --delete-strays already does this unless you add --apply")
+    ap.add_argument("--pick", action="store_true",
+                    help="choose yourself: list every copy of every duplicate song and tick the ones to remove")
     ap.add_argument("--no-progress", action="store_true", help="hide progress bars")
     args = ap.parse_args()
+    if args.pick and (args.delete_strays or args.apply or args.dry_run or args.yes):
+        ap.error("--pick is its own mode: you tick the copies and confirm; it doesn't combine with "
+                 "--delete-strays, --apply, --dry-run or --yes")
+    if args.pick and not (sys.stdin.isatty() and sys.stdout.isatty()):
+        ap.error("--pick needs a terminal to tick the copies in")
     if args.apply and not args.delete_strays:
         ap.error("--apply goes with --delete-strays (the duplicate report on its own never changes anything)")
     if args.apply and args.dry_run:
@@ -382,7 +465,8 @@ def main():
         opts["tolerance_seconds"] = args.tolerance
     workers = max(1, min(64, args.workers or cfg["workers"]))
     quiet = args.no_progress
-    heading("Duplicate songs", ("removing loose copies" if args.apply else "preview: nothing is changed")
+    heading("Duplicate songs", "pick the copies to remove" if args.pick else
+            ("removing loose copies" if args.apply else "preview: nothing is changed")
             if args.delete_strays else "report only — nothing is ever deleted")
 
     paths = args.paths or [resolve(f, cfg["music_dir"]) for f in opts["folders"]]
@@ -401,11 +485,22 @@ def main():
         print(f"\n  {yellow('•')} Stopped.\n")
         return
     groups = find_groups(records, opts["tolerance_seconds"])
-    if not args.delete_strays:
+    if not (args.delete_strays or args.pick):
         report(groups, no_artist, no_duration, len(files), args.report)
         return
 
     root = Path(cfg["music_dir"]).expanduser()
+    if args.pick:
+        if not groups:
+            print(f"\n  {dim('No duplicate songs found.')}\n")
+            return
+        rule_plans, _, _ = plan_strays(groups, root)
+        picked = pick_copies(groups, root, {id(m) for p in rule_plans for m in p.delete})
+        if not picked:
+            print(f"\n  {yellow('•')} Nothing was ticked, so nothing was changed.\n")
+            return
+        return remove_and_report(plans_from_picks(groups, picked), root, False, n_copies)
+
     plans, no_album, nothing_loose = plan_strays(groups, root)
     print_stray_plan(plans, root, no_album, nothing_loose)
     doomed = [p for p in plans if p.delete]
@@ -415,21 +510,7 @@ def main():
     if not args.apply:
         print(dim("\n  Preview only: nothing was changed. Add --apply to remove the copies marked 'delete'.\n"))
         return
-    count = sum(len(p.delete) for p in doomed)
-    question = (f"Really move {copies(count)} to the Trash?" if uses_trash()
-                else f"Really delete {copies(count)}? They can't be brought back.")
-    if not args.yes and not confirm(question):
-        sys.exit("Nothing was changed.")
-    removed, failed = delete_strays(doomed, root)
-    if removed:
-        print(f"\n  {green('✓')} {'Moved' if uses_trash() else 'Deleted'} {copies(len(removed))}"
-              + (" to the Trash" if uses_trash() else "") + (f", {failed} failed" if failed else "")
-              + dim(f"   (list saved to {save_removed_list(removed)})"))
-    elif failed:
-        print(f"\n  {red('✗')} Nothing could be removed ({failed} failed)")
-    print()
-    return 1 if failed else 0
-
+    return remove_and_report(doomed, root, args.yes, copies)
 
 if __name__ == "__main__":
     install_stop_handler()

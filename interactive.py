@@ -463,6 +463,8 @@ class App:
             ("Clean up junk and duplicate folders", "merge duplicate albums, delete ._ files, empty folders; asks first, can undo",
              self.layout),
             ("Remove duplicate songs", "keep the copy inside an album, remove the loose ones", self.duplicates),
+            ("Choose which duplicate songs to delete", "see every copy and tick the ones to delete yourself",
+             self.pick_duplicates),
             ("Sort songs into Artist/Album folders", "for Jellyfin, Plex or Navidrome", self.organize),
             ("Fix wrong tags", "rebuild tags from filenames", self.fix_tags),
             ("Undo the last tidy", "puts every moved file back",
@@ -717,6 +719,12 @@ class App:
         if apply_now:
             args.append("--apply")
         run_and_wait("duplicates", args, self.explicit)
+
+    def pick_duplicates(self):
+        """Every copy of every duplicate song in one list; tick the ones to delete (the tool asks before deleting)."""
+        scope = self.pick_scope("Choose which duplicate songs to delete", "duplicates")
+        if scope is not None:
+            run_and_wait("duplicates", [*scope, "--pick"], self.explicit)
 
     # ---- organize
     def organize(self):

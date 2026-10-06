@@ -1,5 +1,14 @@
 # Changelog
 
+## Added: choose which duplicate songs to delete, from a list
+
+- **`mt dupes --pick`** (and *Tidy my files → Choose which duplicate songs to delete* in the menu) lists every copy of
+  every duplicate song in one scrolling screen. The copies the automatic rule would remove start ticked; you can
+  tick or untick any copy, including in groups the rule leaves alone (no album copy, or every copy in an album).
+  At least one copy of each song always stays: ticking them all is refused and the screen asks again with your other
+  ticks kept. It asks once more before removing (Trash on a Mac), saves the list of what was removed, and needs a
+  terminal. It doesn't combine with `--delete-strays`, `--apply`, `--yes` or `--dry-run`.
+
 ## Added: a yes or no before `mt auto` deletes or edits your files, and menus that fit the window
 
 - **`mt auto` / `mt all` ask before anything that deletes or edits files.** Tidy folders, fix tags, remove loose

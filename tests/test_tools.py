@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import find_duplicates as dupes  # noqa: E402
+import interactive  # noqa: E402
 from lyrics_lang import norm  # noqa: E402
 
 
@@ -294,6 +295,131 @@ class DeleteStraysCommandTests(unittest.TestCase):
         _, out = self.run_main()
         self.assertIn("nothing was changed or deleted", out)
         self.assertEqual(self.songs_left(), before)
+
+
+class FitEndTests(unittest.TestCase):
+    def test_a_long_path_keeps_its_file_name_and_every_row_is_the_same_width(self):
+        long = "Artist Name/A Very Long Album Name Indeed/01 - Track Title.flac"
+        cut = dupes.fit_end(long, 30)
+        self.assertEqual(len(cut), 30)
+        self.assertTrue(cut.startswith("…"))
+        self.assertTrue(cut.rstrip().endswith("01 - Track Title.flac"))
+        self.assertEqual(dupes.fit_end("a.mp3", 12), "a.mp3" + " " * 7)
+        self.assertEqual(dupes.fit_end("歌" * 10, 11).count("歌"), 5)   # double-width characters count as two columns
+
+
+class PlansFromPicksTests(unittest.TestCase):
+    def test_what_is_not_picked_is_kept(self):
+        a, b, c = rec(180.0, path="a.mp3"), rec(180.0, path="b.mp3"), rec(180.0, path="c.mp3")
+        d = rec(180.0, title="Other", path="d.mp3")
+        e = rec(180.0, title="Other", path="e.mp3")
+        plans = dupes.plans_from_picks([[a, b, c], [d, e]], [(0, a), (0, c), (1, e)])
+        self.assertEqual([(p.keep, p.delete) for p in plans], [([b], [a, c]), ([d], [e])])
+
+
+@unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg needed to make test audio")
+class PickCopiesTests(unittest.TestCase):
+    """`--pick`: every copy in one list, the rule's choices ticked, anything can be ticked except the last copy."""
+
+    # rows come out in group order (the 3-copy song first), each group sorted by path
+    ROWS = ["Ado/Show/Song One.mp3", "Ado/Song One.mp3", "Song One.mp3", "Misc/Solo Dup.mp3", "Solo Dup.mp3"]
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.dir)
+        self.lib = self.dir / "lib"
+        for rel, artist, title, secs in (
+                ("Ado/Show/Song One.mp3", "Ado", "Song One", 1), ("Ado/Song One.mp3", "Ado", "Song One", 1),
+                ("Song One.mp3", "Ado", "Song One", 1), ("Ado/Show/Other.mp3", "Ado", "Other", 3),
+                ("Solo Dup.mp3", "Solo", "Dup", 1), ("Misc/Solo Dup.mp3", "Solo", "Dup", 1)):
+            path = self.lib / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "anullsrc=r=8000:cl=mono",
+                            "-t", str(secs), "-metadata", f"artist={artist}", "-metadata", f"title={title}", str(path)],
+                           check=True)
+        self.config = self.dir / "c.toml"
+        self.config.write_text(f"music_dir = {json.dumps(str(self.lib))}\n", encoding="utf-8")
+        self.shown, self.flashes = [], []
+
+    def run_pick(self, *answers, confirm=True, args=("--pick",), tty=True):
+        """Answer the tick list with these replies in turn (lists of booleans, or None to back out)."""
+        replies = iter(answers)
+
+        def fake_checklist(title, options, run_label, header=()):
+            self.shown.append([list(o) for o in options])
+            return next(replies)
+
+        class Out(io.StringIO):   # the captured output stands in for the terminal
+            def isatty(self):
+                return tty
+
+        out = Out()
+        argv = ["find_duplicates.py", "--config", str(self.config), "--no-progress", *args]
+        with mock.patch.object(sys, "argv", argv), mock.patch.object(dupes, "start_log"), \
+                mock.patch.object(dupes, "LOG_DIR", self.dir / "logs"), mock.patch.object(dupes, "uses_trash", return_value=False), \
+                mock.patch.object(dupes, "confirm", return_value=confirm), \
+                mock.patch.object(interactive, "checklist", side_effect=fake_checklist), \
+                mock.patch.object(interactive, "flash", side_effect=lambda m: self.flashes.append(m)), \
+                mock.patch.object(sys.stdin, "isatty", return_value=tty), contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(io.StringIO()):
+            try:
+                code = dupes.main()
+            except SystemExit as e:
+                code = e.code
+        return code, out.getvalue()
+
+    def left(self):
+        return sorted(str(p.relative_to(self.lib)).replace("\\", "/") for p in self.lib.rglob("*.mp3"))
+
+    def test_the_lists_starts_with_what_the_rule_would_remove_ticked(self):
+        self.run_pick(None)
+        rows = self.shown[0]
+        self.assertEqual([r[0].strip() for r in rows], self.ROWS)
+        self.assertEqual([r[1] for r in rows], [False, True, True, False, False])
+        self.assertTrue(rows[0][2].startswith("in an album · 0:01 · "), rows[0][2])
+        self.assertTrue(rows[1][2].startswith("loose · 0:01 · "), rows[1][2])
+
+    def test_ticking_as_offered_removes_the_loose_copies(self):
+        code, out = self.run_pick([False, True, True, False, False])
+        self.assertEqual(code, 0)
+        self.assertIn("Deleted 2 copies", out)
+        self.assertEqual(self.left(), ["Ado/Show/Other.mp3", "Ado/Show/Song One.mp3", "Misc/Solo Dup.mp3", "Solo Dup.mp3"])
+
+    def test_a_group_the_rule_leaves_alone_can_still_be_picked_from(self):
+        code, out = self.run_pick([False, False, False, True, False])   # both Solo Dup copies are loose
+        self.assertEqual(code, 0)
+        self.assertEqual(self.left(), ["Ado/Show/Other.mp3", "Ado/Show/Song One.mp3", "Ado/Song One.mp3",
+                                       "Solo Dup.mp3", "Song One.mp3"])
+
+    def test_the_last_copy_of_a_song_cannot_be_ticked(self):
+        before = self.left()
+        code, out = self.run_pick([True, True, True, False, False], [False, True, False, False, False])
+        self.assertEqual(len(self.flashes), 1)
+        self.assertIn("Ado — Song One", self.flashes[0])
+        self.assertEqual([r[1] for r in self.shown[1]], [True, True, True, False, False])   # the ticks are remembered
+        self.assertEqual(self.left(), [p for p in before if p != "Ado/Song One.mp3"])
+
+    def test_backing_out_or_ticking_nothing_changes_nothing(self):
+        before = self.left()
+        self.run_pick(None)
+        self.assertEqual(self.left(), before)
+        _, out = self.run_pick([False] * 5)
+        self.assertIn("Nothing was ticked", out)
+        self.assertEqual(self.left(), before)
+
+    def test_it_still_asks_before_removing(self):
+        before = self.left()
+        code, _ = self.run_pick([False, True, True, False, False], confirm=False)
+        self.assertEqual(code, "Nothing was changed.")
+        self.assertEqual(self.left(), before)
+
+    def test_it_needs_a_terminal_and_does_not_combine_with_the_other_modes(self):
+        code, _ = self.run_pick(tty=False)
+        self.assertEqual(code, 2)
+        for extra in ("--delete-strays", "--apply", "--yes", "--dry-run"):
+            code, _ = self.run_pick(args=("--pick", extra))
+            self.assertEqual(code, 2, extra)
+        self.assertEqual(self.shown, [])
 
 
 if __name__ == "__main__":

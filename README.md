@@ -121,8 +121,8 @@ The menu is organised by what you want to do with your files rather than by tool
   artists have no picture", "12 loose copies of songs that are also in an album") and ticks the steps that have
   something to do. Removing songs, fixing tags and sorting folders are never ticked for you. Below the steps are
   **Preview only (dry run)** and **Apply without asking again**.
-- **Tidy my files**: clean up junk and duplicate folders, remove duplicate songs, sort into Artist/Album folders,
-  fix wrong tags, undo the last tidy.
+- **Tidy my files**: clean up junk and duplicate folders, remove duplicate songs (by the rule, or by ticking the
+  copies yourself), sort into Artist/Album folders, fix wrong tags, undo the last tidy.
 - **Add what's missing**: album art, artist pictures, lyrics, retry the songs that failed.
 - **Check my library**: the health check, and lists of what's missing (changes nothing).
 
@@ -458,7 +458,15 @@ python3 find_duplicates.py --tolerance 1.5  # how close two lengths must be (sec
 python3 find_duplicates.py --report dupes.txt
 mt dupes --delete-strays                    # preview: which loose copies would go
 mt dupes --delete-strays --apply            # remove them (asks first; --yes skips the question)
+mt dupes --pick                             # tick the copies to remove yourself, in a list
 ```
+
+**Choosing yourself** (`--pick`, or *Tidy my files → Choose which duplicate songs to delete* in the menu). Every
+copy of every duplicate song is listed in one scrolling screen with where it is (loose or in an album), its length
+and size. The copies the automatic rule would remove start ticked, and you can tick or untick any copy, including
+in groups the rule leaves alone. At least one copy of each song always stays (ticking them all is refused), and
+it asks one more time before removing anything. It needs a terminal and doesn't combine with `--delete-strays`,
+`--apply`, `--yes` or `--dry-run`.
 
 **Removing the loose copies** (`--delete-strays`). A copy that sits inside an `Artist/Album/` folder is kept; the
 same song loose in the music folder or directly in an artist folder is removed, together with the lyrics and
