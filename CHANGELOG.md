@@ -1,5 +1,17 @@
 # Changelog
 
+## Added: a yes or no before `mt auto` deletes or edits your files, and menus that fit the window
+
+- **`mt auto` / `mt all` ask before anything that deletes or edits files.** Tidy folders, fix tags, remove loose
+  duplicate songs and sort into Artist/Album folders each get their own question in the style of
+  `Really merge artist folders …? [y/N]`, saying what that step will do to your files (and what can be undone).
+  Answering no skips just that step. Adding art, artist pictures and lyrics only creates files, so they don't ask.
+  The checklist marks these steps with `*`. `--yes`, `--dry-run` and the **Apply without asking again** box still
+  skip every question, and a run with no terminal still refuses to change anything without `--yes`.
+- **Menus fit a normal 80-column Terminal**: long hints and paths are cut with "…" instead of wrapping and breaking
+  the redraw, hints line up in a column, and a list taller than the window (the 25-row Settings) scrolls with the
+  cursor and shows "↑ n more" / "↓ n more".
+
 ## Fixed: `mt organize` could replace a song, and it re-split the albums `mt tidy` had just merged
 
 - **A song could be silently replaced.** All moves are planned before any file moves, so two different files with

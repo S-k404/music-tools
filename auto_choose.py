@@ -21,13 +21,13 @@ class Found:
 
 # (key, label, what it does when nothing was looked up for it)
 STEPS = (
-    ("layout", "Tidy folders", "delete junk files, merge duplicate album folders"),
-    ("strays", "Remove loose duplicate songs", "keeps the copy inside an album folder"),
-    ("tags", "Fix wrong tags from filenames", "rebuild Artist and Title from 'Artist - Title'"),
+    ("layout", "Tidy folders *", "delete junk files, merge duplicate album folders"),
+    ("strays", "Remove loose duplicate songs *", "keeps the copy inside an album folder"),
+    ("tags", "Fix wrong tags from filenames *", "rebuild Artist and Title from 'Artist - Title'"),
     ("art", "Add missing cover art", "YouTube thumbnails embedded into the songs"),
     ("artists", "Find artist pictures", "a photo for every artist, from Deezer"),
     ("lyrics", "Find and translate lyrics", "original + romanization + English"),
-    ("organize", "Sort songs into Artist/Album folders", "for Jellyfin, Plex or Navidrome"),
+    ("organize", "Sort into Artist/Album folders *", "for Jellyfin, Plex or Navidrome"),
 )
 # switched on when there is nothing to go by (the scan couldn't tell)
 ON_BY_DEFAULT = {"layout": True, "art": True, "artists": True, "lyrics": True}
@@ -49,9 +49,8 @@ def _stray_finding(cfg: dict, workers: int, quiet: bool, library) -> Found:
     doomed = [m for p in plans for m in p.delete]
     if not doomed:
         return Found("no loose copies of songs that are in an album", False)
-    where = "go to the Trash" if dupes.uses_trash() else "are deleted for good"
-    return Found(f"{dupes.copies(len(doomed))} ({dupes.human_size(sum(m.size for m in doomed))}) {where}; "
-                 "the album copies stay", True)
+    where = "to the Trash" if dupes.uses_trash() else "deleted for good"
+    return Found(f"{dupes.copies(len(doomed))} ({dupes.human_size(sum(m.size for m in doomed))}), {where}", True)
 
 
 def look(cfg: dict, workers: int, tidy: list, quiet: bool = False) -> tuple:
@@ -111,12 +110,12 @@ def choose(cfg: dict, args, workers: int, tidy: list) -> bool:
     header = [f"Music folder  {cfg['music_dir']}  {green('✓')}"
               + (f"   {_count(songs)} songs" if songs is not None else ""),
               dim("Steps with something to do are ticked; Space switches one on or off."),
-              dim("Removing songs, fixing tags and sorting are always your call.")]
+              dim("* changes files you already have: you are asked yes or no for each one before it runs.")]
     while True:
         options = [[label, ticked[key], found[key].hint if key in found else fallback]
                    for key, label, fallback in STEPS]
         options += [["Preview only (dry run)", preview, "show what would happen, change nothing"],
-                    ["Apply the changes without asking again", apply_now, "skip the final yes/no question"]]
+                    ["Apply without asking again", apply_now, "skip the yes/no questions"]]
         states = checklist("Auto · what should I do?", options, "Continue", header)
         if states is None:
             return False

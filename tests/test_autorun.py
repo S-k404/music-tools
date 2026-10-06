@@ -27,7 +27,8 @@ class RunAuto:
         patches = [mock.patch.object(run_all, "run_tool", side_effect=lambda t, a: calls.append((t, a)) or 0),
                    mock.patch.object(run_all, "tidy_work", return_value=list(work)),
                    mock.patch.object(run_all, "load_config", return_value=CFG),
-                   mock.patch.object(run_all, "confirm", side_effect=lambda q: self.questions.append(q) or bool(answer)),
+                   mock.patch.object(run_all, "confirm",
+                                     side_effect=lambda q: self.questions.append(q) or (answer(q) if callable(answer) else bool(answer))),
                    mock.patch.object(run_all, "wants_chooser", return_value=bool(chooser))]
         if chooser:
             patches.append(mock.patch("auto_choose.choose", side_effect=lambda cfg, args, w, tidy: chooser(args) or True))
@@ -46,8 +47,43 @@ class AutoRunTests(RunAuto, unittest.TestCase):
         self.assertEqual(calls[0][1], ["--clean", "--merge-albums", "--apply", "--yes"])
 
     def test_a_no_answer_changes_nothing(self):
-        code, calls = self.run_auto([], answer=False)
+        code, calls = self.run_auto(["--no-layout"], answer=False)   # only steps that add files: one question
         self.assertEqual((code, calls), (1, []))
+        self.assertEqual(len(self.questions), 1)
+
+    def test_a_step_that_changes_files_asks_on_its_own_and_no_skips_just_that_step(self):
+        code, calls = self.run_auto([], answer=False)
+        self.assertEqual(code, 0)
+        self.assertEqual([t for t, _ in calls], ["art", "artists", "lyrics"])   # the tidy was declined, the rest added files
+        self.assertEqual(len(self.questions), 1)
+        self.assertIn("tidy the folders", self.questions[0])
+
+    def test_each_of_the_four_steps_that_change_files_gets_its_own_question(self):
+        _, calls = self.run_auto(["--tags", "--delete-strays", "--organize"], answer=False)
+        self.assertEqual([t for t, _ in calls], ["art", "artists", "lyrics"])
+        asked = " | ".join(self.questions)
+        self.assertEqual(len(self.questions), 4, asked)
+        for word in ("tidy the folders", "rewrite", "loose copies", "Artist/Album"):
+            self.assertIn(word, asked)
+
+    def test_you_can_say_yes_to_some_and_no_to_others(self):
+        _, calls = self.run_auto(["--tags", "--delete-strays", "--organize"], answer=lambda q: "rewrite" in q or "Artist/Album" in q)
+        self.assertEqual([t for t, _ in calls], ["tags", "art", "artists", "lyrics", "organize"])
+
+    def test_saying_no_to_everything_that_is_left_stops_the_run(self):
+        code, calls = self.run_auto(["--tags", "--no-layout", "--no-art", "--no-artists", "--no-lyrics"], answer=False)
+        self.assertEqual((code, calls), (1, []))
+
+    def test_yes_and_dry_run_ask_nothing_even_with_every_step_on(self):
+        for flag in ("--yes", "--dry-run"):
+            _, calls = self.run_auto([flag, "--tags", "--delete-strays", "--organize"], answer=False)
+            self.assertEqual(self.questions, [], flag)
+            self.assertEqual([t for t, _ in calls], ["layout", "tags", "duplicates", "art", "artists", "lyrics", "organize"])
+
+    def test_the_questions_only_cover_steps_that_are_going_to_run(self):
+        self.run_auto(["--no-layout", "--tags"], answer=True)
+        self.assertEqual(len(self.questions), 1)
+        self.assertIn("rewrite", self.questions[0])
 
     def test_dry_run_never_asks_and_never_applies(self):
         code, calls = self.run_auto(["--dry-run"], answer=False)
@@ -82,10 +118,9 @@ class AutoRunTests(RunAuto, unittest.TestCase):
         _, calls = self.run_auto(["--dry-run", "--delete-strays"])
         self.assertIn(("duplicates", ["--delete-strays"]), calls)
 
-    def test_removing_songs_is_named_in_the_one_question(self):
-        self.run_auto(["--delete-strays"])
-        self.assertEqual(len(self.questions), 1)
-        self.assertIn("duplicate songs", self.questions[0])
+    def test_removing_songs_says_where_they_go(self):
+        self.run_auto(["--no-layout", "--delete-strays"])
+        self.assertTrue(any(word in " ".join(self.questions) for word in ("Trash", "can't be brought back")))
 
 
 class ChooserTests(RunAuto, unittest.TestCase):
@@ -174,16 +209,16 @@ class AutoChooseTests(unittest.TestCase):
                  "strays": self.Found("12 loose copies", True)}
         _, shown, _ = self.run_choose(found, [None])
         ticked = {row[0]: row[1] for row in shown[0]}
-        self.assertEqual(ticked["Tidy folders"], True)
+        self.assertEqual(ticked["Tidy folders *"], True)
         self.assertEqual(ticked["Add missing cover art"], False)
         self.assertEqual(ticked["Find artist pictures"], True)
         self.assertEqual(ticked["Find and translate lyrics"], False)
         # songs are only removed or moved when asked for, even though loose copies were found
-        self.assertEqual(ticked["Remove loose duplicate songs"], False)
-        self.assertEqual(ticked["Fix wrong tags from filenames"], False)
-        self.assertEqual(ticked["Sort songs into Artist/Album folders"], False)
+        self.assertEqual(ticked["Remove loose duplicate songs *"], False)
+        self.assertEqual(ticked["Fix wrong tags from filenames *"], False)
+        self.assertEqual(ticked["Sort into Artist/Album folders *"], False)
         self.assertEqual(ticked["Preview only (dry run)"], False)
-        self.assertEqual(ticked["Apply the changes without asking again"], False)
+        self.assertEqual(ticked["Apply without asking again"], False)
         self.assertIn("37 of 410 artists have none", [row[2] for row in shown[0]])
 
     def test_removing_songs_tags_and_sorting_are_never_ticked_for_you(self):
