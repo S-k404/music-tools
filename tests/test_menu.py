@@ -116,18 +116,18 @@ class MenuTests(MenuCase):
     """The goal screens: what each row leads to. The screens themselves are replaced by mocks."""
 
     def test_the_main_menu_is_goal_first_and_each_row_opens_its_screen(self):
-        names = ("run_all", "tidy", "add_missing", "check", "folders", "settings", "logs", "help")
+        names = ("run_all", "tidy", "add_missing", "one_thing", "check", "folders", "settings", "logs", "help")
         for name in names:
             setattr(self.app, name, mock.Mock(name=name))
         shown = self.drive(self.app.main, *range(len(names)))
-        self.assertEqual(shown[0][1], ["Do it all for me", "Tidy my files", "Add what's missing", "Check my library",
-                                       "Folders", "Settings", "Logs", "Help", "Quit"])
+        self.assertEqual(shown[0][1], ["Do it all for me", "Tidy my files", "Add what's missing", "One song or artist",
+                                       "Check my library", "Folders", "Settings", "Logs", "Help", "Quit"])
         for name in names:
             getattr(self.app, name).assert_called_once_with()
 
     def test_choosing_quit_leaves(self):
         with mock.patch.object(interactive, "clear"):
-            self.drive(self.app.main, 8)
+            self.drive(self.app.main, 9)
 
     def test_do_it_all_hands_over_to_the_tool_that_asks(self):
         self.app.run_all()
@@ -159,11 +159,12 @@ class MenuTests(MenuCase):
     def test_check_screen_lists_change_nothing(self):
         self.app.stats, self.app.find_missing = mock.Mock(), mock.Mock()
         with mock.patch.object(self.app, "pick_scope", return_value=[]):
-            self.drive(self.app.check, 0, 1, 2, 3, 4)
+            self.drive(self.app.check, 0, 1, 2, 3, 4, 5)
         self.app.stats.assert_called_once_with()
         self.app.find_missing.assert_called_once_with()
         self.assertEqual([r[1:3] for r in self.runs],
-                         [("artists", ["--list-missing"]), ("lyrics", ["--list-missing"]), ("duplicates", [])])
+                         [("artists", ["--list-missing"]), ("lyrics", ["--list-missing"]), ("duplicates", []),
+                          ("stats", ["--list-untagged"])])
 
     def test_check_screen_passes_a_chosen_folder_on(self):
         with mock.patch.object(self.app, "pick_scope", return_value=["/Music/Mixes"]):
@@ -174,6 +175,113 @@ class MenuTests(MenuCase):
         with mock.patch.object(self.app, "pick_scope", return_value=None):
             self.drive(self.app.check, 2, 3, 4)
         self.assertEqual(self.runs, [])
+
+
+class OneThingTests(MenuCase):
+    """The screens for a single song or artist: they ask, then run the matching command-line option."""
+
+    def setUp(self):
+        super().setUp()
+        self.song = self.dir / "Song.mp3"
+        self.song.write_bytes(b"x")
+        self.lyrics_file = self.dir / "Song.lrc"
+        self.lyrics_file.write_text("[00:01.00]hi")
+
+    def run_row(self, row, *typed, paths=(), checklists=(), sure=True):
+        """Open the 'One song or artist' screen, choose a row, answer its questions: `paths` for the folder/song
+        questions, `typed` for the text ones, `checklists` for the option lists."""
+        ask_paths, ask_text, lists = iter(paths), iter(typed), iter(checklists)
+        defaults = []
+
+        def fake_ask(prompt, default="", paths=False):
+            defaults.append((prompt, default))
+            return next(ask_text)
+
+        with mock.patch.object(interactive, "ask_folder", side_effect=lambda prompt: next(ask_paths)), \
+                mock.patch.object(interactive, "ask", side_effect=fake_ask), \
+                mock.patch.object(interactive, "checklist", side_effect=lambda *a, **k: next(lists)), \
+                mock.patch.object(interactive, "confirm", return_value=sure), mock.patch.object(interactive, "clear"), \
+                mock.patch("builtins.print"):
+            shown = self.drive(self.app.one_thing, row)
+        self.defaults = defaults
+        return shown
+
+    def command(self):
+        return [r[1:3] for r in self.runs if r[0] == "run_and_wait"]
+
+    def test_the_rows(self):
+        shown = self.run_row(0, paths=[None])
+        self.assertEqual(shown[0][1], [
+            "Add art to one song from a link", "Find lyrics for one song", "Use my own lyrics file for a song",
+            "Look up lyrics for any song", "Set a song's artist by hand", "Find a picture for one artist",
+            "Save missing artists to a file", "Use the picture links I filled in"])
+
+    def test_art_from_a_link(self):
+        self.run_row(0, "https://youtu.be/abc", paths=[str(self.song)])
+        self.assertEqual(self.command(), [("art", [str(self.song), "--url", "https://youtu.be/abc"])])
+
+    def test_a_song_that_does_not_exist_is_refused_and_nothing_runs(self):
+        self.run_row(0, paths=[str(self.dir / "missing.mp3")])
+        self.assertEqual(self.command(), [])
+        self.assertEqual(len([r for r in self.runs if r[0] == "flash"]), 1)
+
+    def test_lyrics_for_one_song_with_its_options(self):
+        self.run_row(1, paths=[str(self.song)], checklists=[[True, False]])
+        self.assertEqual(self.command(), [("lyrics", [str(self.song), "--show"])])
+        self.runs.clear()
+        self.run_row(1, paths=[str(self.song)], checklists=[[False, True]])
+        self.assertEqual(self.command(), [("lyrics", [str(self.song), "--force"])])
+
+    def test_own_lyrics_file(self):
+        self.run_row(2, paths=[str(self.song), str(self.lyrics_file)])
+        self.assertEqual(self.command(), [("lyrics", [str(self.song), "--lyrics", str(self.lyrics_file)])])
+
+    def test_look_up_a_song_i_do_not_have(self):
+        self.run_row(3, "Ado", "Usseewa")
+        self.assertEqual(self.command(), [("lyrics", ["--artist", "Ado", "--title", "Usseewa"])])
+
+    def test_set_the_artist_previews_unless_the_box_is_ticked(self):
+        self.run_row(4, "Ado", paths=[str(self.song)], checklists=[[False]])
+        self.assertEqual(self.command(), [("tags", [str(self.song), "--set-artist", "Ado"])])
+        self.runs.clear()
+        self.run_row(4, "Ado", paths=[str(self.song)], checklists=[[True]])
+        self.assertEqual(self.command(), [("tags", [str(self.song), "--set-artist", "Ado", "--apply"])])
+
+    def test_set_the_artist_asks_before_writing_and_no_means_nothing_runs(self):
+        self.run_row(4, "Ado", paths=[str(self.song)], checklists=[[True]], sure=False)
+        self.assertEqual(self.command(), [])
+
+    def test_a_picture_for_one_artist(self):
+        self.run_row(5, "Ado", "")
+        self.assertEqual(self.command(), [("artists", ["--artist", "Ado"])])
+        self.runs.clear()
+        self.run_row(5, "Ado", "https://www.deezer.com/artist/123")
+        self.assertEqual(self.command(), [("artists", ["--artist", "Ado", "--image", "https://www.deezer.com/artist/123"])])
+
+    def test_a_picture_for_one_artist_from_a_file(self):
+        self.run_row(5, "Ado", str(self.dir / "ado photo.jpg"))
+        self.assertEqual(self.command()[0][1][:3], ["--artist", "Ado", "--image"])
+        self.assertTrue(self.command()[0][1][3].endswith("ado photo.jpg"))
+
+    def test_save_the_artists_without_a_picture_to_a_file(self):
+        self.run_row(6, str(self.dir / "missing.txt"))
+        self.assertEqual(self.command(), [("artists", ["--write-missing", str(self.dir / "missing.txt")])])
+        self.assertTrue(self.defaults[0][1].endswith("missing-artists.txt"))   # offered as the default name
+
+    def test_read_the_filled_in_list_back(self):
+        listing = self.dir / "list.txt"
+        listing.write_text("Ado | https://x\n")
+        self.run_row(7, paths=[str(listing)])
+        self.assertEqual(self.command(), [("artists", ["--from-file", str(listing)])])
+        self.runs.clear()
+        self.run_row(7, paths=[str(self.dir / "nope.txt")])
+        self.assertEqual(self.command(), [])
+
+    def test_leaving_a_question_empty_runs_nothing(self):
+        self.run_row(3, "")
+        self.run_row(5, "")
+        self.run_row(0, paths=[None])
+        self.assertEqual([c for c in self.command() if c[0] == "lyrics"], [])
 
 
 class PickDuplicatesTests(MenuCase):

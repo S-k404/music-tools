@@ -427,10 +427,11 @@ class App:
         while True:
             cfg = self.cfg
             rows = [
-                ("Do it all for me", "looks at your library, shows what it found, asks what to do"),
-                ("Tidy my files", "junk, duplicate folders and songs, folder layout, wrong tags"),
+                ("Do it all for me", "scans your library, then asks what to do"),
+                ("Tidy my files", "junk, duplicates, folder layout, tags"),
                 ("Add what's missing", "album art, artist pictures, lyrics"),
-                ("Check my library", "health check and lists of what's missing, changes nothing"),
+                ("One song or artist", "art link, lyrics, set artist, one picture"),
+                ("Check my library", "health check and lists; changes nothing"),
                 ("Folders", "change which folders are used"),
                 ("Settings", "matching, cropping, tag options…"),
                 ("Logs", "see what previous runs did"),
@@ -442,7 +443,7 @@ class App:
                 clear()
                 return
             cursor = choice
-            [self.run_all, self.tidy, self.add_missing, self.check, self.folders, self.settings,
+            [self.run_all, self.tidy, self.add_missing, self.one_thing, self.check, self.folders, self.settings,
              self.logs, self.help][choice]()
 
     def submenu(self, title, build):
@@ -460,12 +461,10 @@ class App:
     # ---- the goal screens
     def tidy(self):
         self.submenu("Tidy my files", lambda: [
-            ("Clean up junk and duplicate folders", "merge duplicate albums, delete ._ files, empty folders; asks first, can undo",
-             self.layout),
-            ("Remove duplicate songs", "keep the copy inside an album, remove the loose ones", self.duplicates),
-            ("Choose which duplicate songs to delete", "see every copy and tick the ones to delete yourself",
-             self.pick_duplicates),
-            ("Sort songs into Artist/Album folders", "for Jellyfin, Plex or Navidrome", self.organize),
+            ("Clean up junk and duplicate folders", "asks first, can undo", self.layout),
+            ("Remove duplicate songs", "keeps the album copy", self.duplicates),
+            ("Choose which duplicate songs to delete", "tick the copies yourself", self.pick_duplicates),
+            ("Sort songs into Artist/Album folders", "for Jellyfin, Plex, Navidrome", self.organize),
             ("Fix wrong tags", "rebuild tags from filenames", self.fix_tags),
             ("Undo the last tidy", "puts every moved file back",
              lambda: run_and_wait("layout", ["--undo", "--apply"], self.explicit)),
@@ -483,6 +482,104 @@ class App:
             ]
         self.submenu("Add what's missing", build)
 
+    # ---- one song or one artist: the command-line options that name a single thing
+    def ask_existing(self, prompt):
+        """A song or folder typed or dragged in; None (after saying so) if it's empty or doesn't exist."""
+        clear()
+        path = ask_folder(prompt)
+        if not path:
+            return None
+        if not Path(path).expanduser().exists():
+            flash(red(f"Not found: {path}"))
+            return None
+        return path
+
+    def one_thing(self):
+        self.submenu("One song or artist", lambda: [
+            ("Add art to one song from a link", "a YouTube link's thumbnail", self.art_from_link),
+            ("Find lyrics for one song", "shows them side by side here too", self.lyrics_for_song),
+            ("Use my own lyrics file for a song", "a .lrc or .txt you already have", self.own_lyrics),
+            ("Look up lyrics for any song", "type artist and title; saves nothing", self.lyrics_lookup),
+            ("Set a song's artist by hand", "when the filename can't name it", self.set_artist),
+            ("Find a picture for one artist", "by name, or your own image", self.one_artist),
+            ("Save missing artists to a file", "a list to fill in with links", self.write_missing_artists),
+            ("Use the picture links I filled in", "reads that list, saves pictures", self.artists_from_file),
+        ])
+
+    def art_from_link(self):
+        song = self.ask_existing("Song to add art to")
+        link = song and ask("YouTube link or video ID")
+        if link:
+            run_and_wait("art", [song, "--url", link], self.explicit)
+
+    def lyrics_for_song(self):
+        song = self.ask_existing("Song to find lyrics for")
+        if not song:
+            return
+        states = checklist("Lyrics for one song · options", [
+            ["Show them here too", True, "side by side in this window"],
+            ["Replace lyrics that already exist", False, "your own .lrc is kept as .bak"],
+        ], "Start")
+        if states is not None:
+            run_and_wait("lyrics", [song, *(["--show"] if states[0] else []), *(["--force"] if states[1] else [])],
+                         self.explicit)
+
+    def own_lyrics(self):
+        song = self.ask_existing("Song the lyrics belong to")
+        lyrics = song and self.ask_existing("Lyrics file (.lrc or .txt)")
+        if lyrics:
+            run_and_wait("lyrics", [song, "--lyrics", lyrics], self.explicit)
+
+    def lyrics_lookup(self):
+        clear()
+        artist = ask("Artist")
+        title = artist and ask("Song title")
+        if title:
+            run_and_wait("lyrics", ["--artist", artist, "--title", title], self.explicit)
+
+    def set_artist(self):
+        song = self.ask_existing("Song (or folder) to set the artist on")
+        name = song and ask("Artist name to write")
+        if not name:
+            return
+        states = checklist("Set the artist · options", [["Write the change", False, "off = preview only"]], "Start")
+        if states is None:
+            return
+        args = [song, "--set-artist", name]
+        if states[0]:
+            if not confirm(f"Really set the artist to {name!r} on everything in that path?"):
+                return
+            args.append("--apply")
+        run_and_wait("tags", args, self.explicit)
+
+    def one_artist(self):
+        clear()
+        name = ask("Artist name")
+        if not name:
+            return
+        print(dim("\nLeave this empty to search Deezer and YouTube. Or give a Deezer artist link, a YouTube channel"
+                  "\nlink, an image link, or an image file (drag it in)."))
+        image = ask("Picture link or file")
+        args = ["--artist", name]
+        if image:
+            args += ["--image", image if image.startswith(("http://", "https://")) else clean_path(image)]
+        run_and_wait("artists", args, self.explicit)
+
+    def write_missing_artists(self):
+        clear()
+        target = ask("Save the list to", os.path.join(os.getcwd(), "missing-artists.txt"), paths=True)
+        if target:
+            run_and_wait("artists", ["--write-missing", target], self.explicit)
+
+    def artists_from_file(self):
+        clear()
+        print(dim("One 'Artist | link or image file' per line, like the list saved by the previous screen."))
+        target = ask_folder("List to read")
+        if target and Path(target).expanduser().is_file():
+            run_and_wait("artists", ["--from-file", target], self.explicit)
+        elif target:
+            flash(red(f"Not a file: {target}"))
+
     def check(self):
         def listing(tool, flag, title, section):
             def run():
@@ -497,6 +594,8 @@ class App:
              listing("artists", "--list-missing", "Artists without a picture", "artist_art")),
             ("List songs without lyrics", "changes nothing", listing("lyrics", "--list-missing", "Songs without lyrics", "lyrics")),
             ("List duplicate songs", "changes nothing", listing("duplicates", None, "Duplicate songs", "duplicates")),
+            ("List songs with no title or artist tag", "changes nothing",
+             lambda: run_and_wait("stats", ["--list-untagged"], self.explicit)),
         ])
 
     def failed_count(self):

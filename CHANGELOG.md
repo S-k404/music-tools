@@ -1,5 +1,16 @@
 # Changelog
 
+## Added: command-line options that had no menu path
+
+- A new **One song or artist** screen in the menu covers the options that name a single thing, which used to be
+  command line only: `art SONG --url LINK`, `lyrics SONG --show`, `lyrics SONG --lyrics FILE`,
+  `lyrics --artist X --title Y`, `tags PATH --set-artist NAME` (previews unless you tick "Write the change", then
+  asks), `artists --artist NAME [--image LINK_OR_FILE]`, `artists --write-missing FILE` and
+  `artists --from-file FILE`. It asks for what it needs (drag a song or file in), checks it exists, and shows the
+  command it ran.
+- **Check my library** also lists songs with no title or artist tag (`mt check --list-untagged`).
+- Menu hints are shorter so they fit an 80-column Terminal without being cut off.
+
 ## Added: choose which duplicate songs to delete, from a list
 
 - **`mt dupes --pick`** (and *Tidy my files → Choose which duplicate songs to delete* in the menu) lists every copy of
