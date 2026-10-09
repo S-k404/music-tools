@@ -131,7 +131,7 @@ class ChooserTests(RunAuto, unittest.TestCase):
         parser = argparse.ArgumentParser()
         parser.add_argument("paths", nargs="*")
         for flag in ("--dry-run", "--yes", "--no-layout", "--organize", "--tags", "--no-art", "--no-artists",
-                     "--no-lyrics", "--interactive", "--no-auto-album", "--delete-strays"):
+                     "--no-lyrics", "--interactive", "--no-auto-album", "--delete-strays", "--dedupe", "--everything"):
             parser.add_argument(flag, action="store_true")
         parser.add_argument("--config")
         return parser, parser.parse_args(argv)
@@ -146,7 +146,8 @@ class ChooserTests(RunAuto, unittest.TestCase):
         self.assertTrue(self.wants([]))
         self.assertTrue(self.wants(["--config", "x.toml"]))
         self.assertFalse(self.wants([], tty=False))
-        for argv in (["--yes"], ["--dry-run"], ["--no-art"], ["--organize"], ["--delete-strays"], ["Mixes"]):
+        for argv in (["--yes"], ["--dry-run"], ["--no-art"], ["--organize"], ["--delete-strays"], ["--dedupe"],
+                     ["--everything"], ["Mixes"]):
             self.assertFalse(self.wants(argv), argv)
 
     def test_what_you_pick_becomes_the_steps_that_run(self):
@@ -180,8 +181,8 @@ class AutoChooseTests(unittest.TestCase):
         import argparse
         import auto_choose
         self.ac = auto_choose
-        self.args = argparse.Namespace(no_layout=False, delete_strays=False, tags=False, no_art=False, no_artists=False,
-                                       no_lyrics=False, organize=False, dry_run=False, yes=False)
+        self.args = argparse.Namespace(no_layout=False, delete_strays=False, dedupe=False, tags=False, no_art=False,
+                                       no_artists=False, no_lyrics=False, organize=False, dry_run=False, yes=False)
         self.cfg = {"music_dir": "/music"}
 
     def run_choose(self, found, answers, songs=100, tidy=("3 junk files",)):
@@ -206,7 +207,7 @@ class AutoChooseTests(unittest.TestCase):
     def test_steps_with_something_to_do_start_ticked_and_the_rest_do_not(self):
         found = {"layout": self.Found("3 junk files", True), "art": self.Found("every song has art", False),
                  "artists": self.Found("37 of 410 artists have none", True), "lyrics": self.Found("done", False),
-                 "strays": self.Found("12 loose copies", True)}
+                 "strays": self.Found("12 loose copies", True), "dedupe": self.Found("9 copies", True)}
         _, shown, _ = self.run_choose(found, [None])
         ticked = {row[0]: row[1] for row in shown[0]}
         self.assertEqual(ticked["Tidy folders *"], True)
@@ -215,6 +216,7 @@ class AutoChooseTests(unittest.TestCase):
         self.assertEqual(ticked["Find and translate lyrics"], False)
         # songs are only removed or moved when asked for, even though loose copies were found
         self.assertEqual(ticked["Remove loose duplicate songs *"], False)
+        self.assertEqual(ticked["Remove lower-quality duplicate songs *"], False)
         self.assertEqual(ticked["Fix wrong tags from filenames *"], False)
         self.assertEqual(ticked["Sort into Artist/Album folders *"], False)
         self.assertEqual(ticked["Preview only (dry run)"], False)
@@ -228,23 +230,23 @@ class AutoChooseTests(unittest.TestCase):
 
     def test_the_defaults_when_nothing_was_looked_up(self):
         defaults = self.ac.defaults_for({})
-        self.assertEqual(defaults, {"layout": True, "strays": False, "tags": False, "art": True, "artists": True,
-                                    "lyrics": True, "organize": False})
+        self.assertEqual(defaults, {"layout": True, "strays": False, "dedupe": False, "tags": False, "art": True,
+                                    "artists": True, "lyrics": True, "organize": False})
 
     def test_the_answers_set_the_options(self):
         n = len(self.ac.STEPS)
-        # layout off, strays on, tags on, art off, artists on, lyrics off, organize on; no preview, apply
-        answer = [False, True, True, False, True, False, True, False, True]
+        # layout off, strays on, dedupe on, tags on, art off, artists on, lyrics off, organize on; no preview, apply
+        answer = [False, True, True, True, False, True, False, True, False, True]
         ok, _, _ = self.run_choose({}, [answer])
         self.assertTrue(ok)
         self.assertEqual(len(answer), n + 2)
-        self.assertEqual((self.args.no_layout, self.args.delete_strays, self.args.tags, self.args.no_art,
-                          self.args.no_artists, self.args.no_lyrics, self.args.organize, self.args.dry_run,
-                          self.args.yes), (True, True, True, True, False, True, True, False, True))
+        self.assertEqual((self.args.no_layout, self.args.delete_strays, self.args.dedupe, self.args.tags,
+                          self.args.no_art, self.args.no_artists, self.args.no_lyrics, self.args.organize,
+                          self.args.dry_run, self.args.yes), (True, True, True, True, True, False, True, True, False, True))
 
     def test_preview_and_apply_together_ask_again_and_remember_the_other_ticks(self):
-        both = [True, False, False, True, True, True, False, True, True]
-        fine = [True, False, False, True, True, True, False, True, False]
+        both = [True, False, False, False, True, True, True, False, True, True]
+        fine = [True, False, False, False, True, True, True, False, True, False]
         ok, shown, flash = self.run_choose({}, [both, fine])
         self.assertTrue(ok)
         flash.assert_called_once()
@@ -261,6 +263,97 @@ class AutoChooseTests(unittest.TestCase):
                 mock.patch.object(self.ac, "look") as look, redirect_stdout(io.StringIO()):
             self.assertFalse(self.ac.choose(self.cfg, self.args, 4, []))
         look.assert_not_called()
+
+
+class DedupeStepTests(RunAuto, unittest.TestCase):
+    def steps(self, argv, **kw):
+        _, calls = self.run_auto(argv, **kw)
+        return calls
+
+    def test_duplicates_are_off_unless_asked_for(self):
+        self.assertNotIn("duplicates", [t for t, _ in self.steps(["--yes"])])
+
+    def test_the_duplicate_step_sits_after_tags_and_before_art(self):
+        calls = self.steps(["--yes", "--tags", "--dedupe", "--organize"])
+        self.assertEqual([t for t, _ in calls], ["layout", "tags", "duplicates", "art", "artists", "lyrics", "organize"])
+
+    def test_it_shows_its_list_and_asks_unless_the_whole_run_was_told_yes(self):
+        _, args = next(c for c in self.steps(["--dedupe"], answer=True) if c[0] == "duplicates")
+        self.assertEqual(args, ["--delete", "--apply"])
+        _, args = next(c for c in self.steps(["--dedupe", "--yes"]) if c[0] == "duplicates")
+        self.assertEqual(args, ["--delete", "--apply", "--yes"])
+
+    def test_a_dry_run_only_previews_the_removal(self):
+        _, args = next(c for c in self.steps(["--dedupe", "--dry-run"]) if c[0] == "duplicates")
+        self.assertEqual(args, ["--delete"])
+
+    def test_the_organize_step_files_the_kept_songs_so_the_duplicate_step_does_not(self):
+        _, args = next(c for c in self.steps(["--dedupe", "--organize", "--yes"]) if c[0] == "duplicates")
+        self.assertIn("--no-fix-albums", args)
+        _, args = next(c for c in self.steps(["--dedupe", "--yes"]) if c[0] == "duplicates")
+        self.assertNotIn("--no-fix-albums", args)
+
+    def test_no_auto_album_reaches_the_duplicate_steps_own_album_fix(self):
+        _, args = next(c for c in self.steps(["--dedupe", "--no-auto-album", "--yes"]) if c[0] == "duplicates")
+        self.assertIn("--no-auto-album", args)
+
+    def test_named_folders_and_the_config_reach_the_duplicate_step(self):
+        _, args = next(c for c in self.steps(["--dedupe", "--yes", "--config", "my.toml", "Mixes"]) if c[0] == "duplicates")
+        self.assertEqual(args, ["--config", "my.toml", "--delete", "--apply", "--yes", "Mixes"])
+
+    def test_a_no_answer_skips_the_removal_and_runs_the_steps_that_only_add_files(self):
+        code, calls = self.run_auto(["--dedupe", "--no-layout"], answer=False)
+        self.assertEqual(code, 0)
+        self.assertEqual([t for t, _ in calls], ["art", "artists", "lyrics"])
+
+    def test_the_question_names_the_quality_rule_not_the_loose_copy_rule(self):
+        self.run_auto(["--no-layout", "--dedupe"])
+        self.assertTrue(any("lower-quality" in q for q in self.questions), self.questions)
+        self.assertFalse(any("loose" in q for q in self.questions), self.questions)
+
+    def test_both_rules_can_run_in_one_pass_loose_copies_first(self):
+        calls = self.steps(["--yes", "--delete-strays", "--dedupe"])
+        self.assertEqual([t for t, _ in calls], ["layout", "duplicates", "duplicates", "art", "artists", "lyrics"])
+        self.assertEqual(calls[1][1], ["--delete-strays", "--apply", "--yes"])
+        self.assertEqual(calls[2][1], ["--delete", "--apply", "--yes"])
+
+    def test_each_rule_gets_its_own_yes_or_no(self):
+        self.run_auto(["--no-layout", "--delete-strays", "--dedupe"], answer=True)
+        self.assertEqual(len(self.questions), 2)
+        self.assertEqual(sum("loose" in q for q in self.questions), 1)
+        self.assertEqual(sum("lower-quality" in q for q in self.questions), 1)
+
+    def test_everything_switches_on_the_optional_steps_but_not_the_loose_copy_rule(self):
+        calls = self.steps(["--everything", "--yes"])
+        self.assertEqual([t for t, _ in calls], ["layout", "tags", "duplicates", "art", "artists", "lyrics", "organize"])
+        self.assertEqual(calls[2][1], ["--delete", "--apply", "--yes", "--no-fix-albums"])
+
+    def test_everything_still_honours_the_no_options(self):
+        calls = self.steps(["--everything", "--yes", "--no-art", "--no-lyrics", "--no-layout"])
+        self.assertEqual([t for t, _ in calls], ["tags", "duplicates", "artists", "organize"])
+
+
+class DedupeInTheChooserTests(unittest.TestCase):
+    """The duplicate scan is shared by the two duplicate steps, and the lower-quality one is found by its own rule."""
+
+    def test_what_the_scan_found_is_said_per_rule(self):
+        import auto_choose as ac
+        import find_duplicates as dupes
+
+        def rec(path, ext, rate, album=False):
+            return dupes.Record(Path(path), "A", "T", "a", "t", 200.0, 5_000_000, ext,
+                                dupes.Quality(f"{ext} {rate}", (0, rate, True)), frozenset(), album)
+
+        loose, in_album = rec("/music/T.mp3", "mp3", 100), rec("/music/A/Alb/T.mp3", "mp3", 90, album=True)
+        groups = [[loose, in_album]]
+        cfg = {"music_dir": "/music"}
+        # quality says the album copy (lower rate) goes; location says the loose copy goes
+        self.assertIn("1 copy", ac._dedupe_finding(groups).hint)
+        self.assertTrue(ac._dedupe_finding(groups).todo)
+        self.assertIn("1 loose copy", ac._stray_finding(cfg, groups).hint)
+        self.assertTrue(ac._stray_finding(cfg, groups).todo)
+        self.assertFalse(ac._dedupe_finding([]).todo)
+        self.assertFalse(ac._stray_finding(cfg, []).todo)
 
 
 class LayoutMenuTests(unittest.TestCase):

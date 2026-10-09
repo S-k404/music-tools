@@ -674,7 +674,7 @@ def main(argv: list = None) -> int:
     scan_paths = [resolve(p, str(music_dir)) for p in target_paths]
 
     for p in scan_paths:
-        problem = folder_problem(p)
+        problem = "" if p.is_file() else folder_problem(p)   # a single song is fine too
         if problem:
             sys.exit(f"{red('✗')} Cannot read {p}: {problem}")
 

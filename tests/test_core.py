@@ -10,6 +10,7 @@ import types
 import unittest
 import unicodedata
 from pathlib import Path
+from unittest import mock
 
 if importlib.util.find_spec("mutagen") is None or importlib.util.find_spec("PIL") is None:
     raise unittest.SkipTest("mutagen and Pillow are needed to run these tests (./setup.sh)")

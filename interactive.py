@@ -463,6 +463,7 @@ class App:
         self.submenu("Tidy my files", lambda: [
             ("Clean up junk and duplicate folders", "asks first, can undo", self.layout),
             ("Remove duplicate songs", "keeps the album copy", self.duplicates),
+            ("Remove duplicate songs by quality", "keeps the best copy of each", self.duplicates_by_quality),
             ("Choose which duplicate songs to delete", "tick the copies yourself", self.pick_duplicates),
             ("Sort songs into Artist/Album folders", "for Jellyfin, Plex, Navidrome", self.organize),
             ("Fix wrong tags", "rebuild tags from filenames", self.fix_tags),
@@ -794,10 +795,22 @@ class App:
         scope = self.pick_scope("Duplicate songs", "duplicates")
         if scope is None:
             return
+        self.remove_duplicates(scope, "--delete-strays", "Remove the loose copies",
+                               "keeps the copy inside an album; off = just list the duplicates")
+
+    def duplicates_by_quality(self):
+        scope = self.pick_scope("Duplicate songs by quality", "duplicates")
+        if scope is None:
+            return
+        self.remove_duplicates(scope, "--delete", "Remove the lower-quality copies",
+                               "keeps the best copy of each song; off = just list the duplicates")
+
+    def remove_duplicates(self, scope: list, rule: str, label: str, hint: str):
+        """The options screen shared by both ways of removing duplicates: tick the removal, then preview or apply."""
         ticked = [False, False, False]
         while True:
             ticked = checklist("Duplicate songs · options", [
-                ["Remove the loose copies", ticked[0], "keeps the copy inside an album; off = just list the duplicates"],
+                [label, ticked[0], hint],
                 ["Preview only (dry run)", ticked[1], "show which copies would go, change nothing"],
                 ["Apply the changes to all", ticked[2], "really remove them (asks once more first)"],
             ], "Start")
@@ -807,12 +820,12 @@ class App:
             if apply_now and preview:
                 flash(red("Pick either Preview (changes nothing) or Apply (removes them), not both."))
             elif apply_now and not remove:
-                flash(red("Apply needs 'Remove the loose copies' ticked: the plain duplicate list never changes anything."))
+                flash(red(f"Apply needs '{label}' ticked: the plain duplicate list never changes anything."))
             else:
                 break
         args = [*scope]
         if remove:
-            args.append("--delete-strays")
+            args.append(rule)
         if preview:
             args.append("--dry-run")
         if apply_now:

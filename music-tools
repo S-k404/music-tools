@@ -36,6 +36,7 @@ EVERYDAY = f"""\
 EVERYDAY COMMANDS
   {PROG}                             open the menu (arrow keys + Enter)
   {PROG} auto                        look at the library, show what it found, ask what to do (tidy, art, pictures, lyrics)
+                                     (add --everything for tags, duplicate removal and organizing too, without questions)
   {PROG} tidy                        merge duplicate folders and delete junk (shows the list, asks first)
   {PROG} undo                        put back what the last tidy moved
   {PROG} dupes                       find duplicate songs; add --delete-strays to remove the loose copies
@@ -134,11 +135,15 @@ TAGS  (fix_misidentified_tags.py)  — preview only unless you add --apply
   {PROG} tags --no-artist | --keep-picard-tags | --keep-tracks
   {PROG} tags PATH --set-artist NAME set the Artist tag by hand (then `{PROG} organize` moves the file)
 
-DUPLICATES  (find_duplicates.py)  — only reports unless you add --delete-strays and --apply
-  {PROG} duplicates                   find likely duplicate songs in duplicates.folders
+DUPLICATES  (find_duplicates.py)  — only reports unless you add --delete or --delete-strays and --apply
+  {PROG} duplicates                   find likely duplicate songs in duplicates.folders; marks the best copy
+                                     of each (lossless, then bitrate) "keep" and the rest "remove"
   {PROG} duplicates PATH [PATH..]     check specific files/folders
   {PROG} duplicates --tolerance 1.5   how close two lengths (seconds) still count as the same recording
   {PROG} duplicates --report dupes.txt   save the group listing as a text file
+  {PROG} duplicates --delete          preview removing the lower-quality copies
+  {PROG} duplicates --delete --apply  do it (asks first; --yes skips the question), then sort the songs kept
+                                     into Artist/Album/ folders, looking up albums (--no-fix-albums skips that)
   {PROG} duplicates --delete-strays   preview: keep the copy inside an Artist/Album/ folder, list the loose copies
                                      of the same song (in the music folder or an artist folder) that would go
   {PROG} duplicates --delete-strays --apply
@@ -154,15 +159,18 @@ ORGANIZER  (organize_music.py)  — sort songs into Artist/Album/ folders for Je
   {PROG} organize --no-artist-art     don't copy artist photo to folder.jpg and artist.jpg
   {PROG} organize --no-clean          don't remove empty source directories
 
-ALL-IN-ONE PIPELINE  (run_all.py)  — tidy, art, artists, lyrics and organize in one go, in the smart order
+ALL-IN-ONE PIPELINE  (run_all.py)  — tidy, tags, duplicates, art, artists, lyrics and organize in one go, in the smart order
   {PROG} all                          in a terminal: looks at the library (read-only), shows what it found for each
                                      step, lets you tick the steps you want, with Preview and Apply boxes at the end
   {PROG} all --yes                    no questions: tidy junk/duplicate folders (if any), then art, artist pictures
                                      and lyrics (scripts, cron). Any option below also skips the questions.
+  {PROG} all --everything             every optional step: also tags, duplicate removal and organizing (= --tags --dedupe --organize)
   {PROG} all --no-layout              skip the folder tidy step
   {PROG} all --delete-strays          also remove loose copies of songs that sit in an album folder
   {PROG} all --organize               also organize songs into Artist/Album/ folders
   {PROG} all --tags                   also fix misidentified tags from filenames
+  {PROG} all --dedupe                 also remove duplicate songs: the best copy stays, the rest go to the Trash
+                                     (lists the copies and asks again, unless you add --yes)
   {PROG} all --dry-run                preview all steps without changing files
   {PROG} all PATH [PATH..]            run pipeline on specific files/folders
 

@@ -20,7 +20,7 @@ Set up the `mt` alias once (last section of "The `mt` command" below), then type
 | Type this | It does |
 |---|---|
 | `mt` | opens the menu |
-| `mt auto` | looks at your library, shows what it found for each step and asks what you want: tidy folders, remove duplicate songs, art, artist pictures, lyrics (tick the steps, then Preview or Apply) |
+| `mt auto` | looks at your library, shows what it found for each step and asks what you want: tidy folders, remove duplicate songs, art, artist pictures, lyrics (tick the steps, then Preview or Apply); `mt auto --everything` skips the questions and also does tags, duplicate removal and organizing |
 | `mt tidy` (or `mt clean`) | merges duplicate folders and deletes junk (shows the list, asks first; `--dry-run` previews) |
 | `mt undo` | puts back what the last tidy moved |
 | `mt dupes --delete-strays` | keeps the copy of a song that sits in an album folder, removes the loose copies (previews first; add `--apply`) |
@@ -41,7 +41,7 @@ of a command (`mt -clean`, `mt --tidy`) are ignored, and in flags `--dryrun`, `-
 | `find_artist_art.py` | `mt artists` | Finds a picture for every artist (Deezer, with a YouTube fallback) and saves it as `<Artist>.jpg`, or `Artist/artist.jpg` |
 | `find_lyrics.py` | `mt lyrics` | Finds lyrics (lrclib.net) and saves original + romanization + English next to each song |
 | `fix_misidentified_tags.py` | `mt fix` | Fixes songs that MusicBrainz Picard tagged as the wrong album track, rebuilding tags from the filename |
-| `find_duplicates.py` | `mt dupes` | Reports songs that are probably the same recording saved twice; with `--delete-strays` it can remove the loose copies and keep the one in an album (previews first) |
+| `find_duplicates.py` | `mt dupes` | Reports songs that are probably the same recording saved twice and marks the best copy; on request removes the lower-quality copies and fixes the kept songs' albums (`--delete`), or only the loose copies that also sit in an album (`--delete-strays`); previews first |
 | `library_layout.py` | `mt tidy` | Finds duplicate album folders, junk and odd names; merges and cleans them with an undo file |
 | `organize_music.py` | `mt organize` | Sorts songs and companion lyrics/images into `Artist/Album/` folders for Jellyfin / Plex |
 | `run_all.py` | `mt auto` | Looks at the library, asks what you want, then runs the tools above in the smart order |
@@ -147,7 +147,8 @@ mt artists                        # find a picture for every artist
 mt lyrics                         # find and translate lyrics
 mt fix --only-severe --apply      # fix wrong tags
 mt fix FILE --set-artist NAME     # set the Artist tag by hand (then `mt organize` files it under that artist)
-mt dupes                          # find likely duplicate songs
+mt dupes                          # find likely duplicate songs (which copy is best, which would go)
+mt dupes --delete --apply         # move the lower-quality copies to the Trash, then fix the kept songs' albums
 mt tidy                           # merge duplicate folders, delete junk (asks first)
 mt undo                           # reverse the last tidy
 mt organize                       # sort songs into Artist/Album for Jellyfin
@@ -447,7 +448,8 @@ filter asks for confirmation.
 ## find_duplicates.py  (`mt dupes`)
 
 Finds songs that are probably the same recording saved more than once —
-downloaded twice into different folders, or in different formats/bitrates.
+downloaded twice into different folders, or in different formats/bitrates —
+and, when you ask, removes the extra copies.
 On its own it only reports: nothing is deleted, moved or changed.
 
 Songs are grouped by artist and a cleaned-up title (YouTube upload noise and
@@ -457,11 +459,43 @@ differently), and only flagged when their lengths are also close — a song and
 its own sped-up or slowed edit share a title but have a different length, so
 they're correctly never flagged together.
 
+**Which copy is kept.** Every group shows `keep` next to the best copy and
+`remove` next to the rest, with each file's format and bitrate. The best copy is
+the one with the highest quality: lossless (FLAC, ALAC, WAV) beats any lossy
+file, higher resolution (24-bit/96 kHz over 16-bit/44.1 kHz) beats lower, and among
+lossy files the higher bitrate wins, counting AAC, Vorbis and Opus for a little
+more than MP3 at the same bitrate. Files within about 8% of each other count as
+the same quality; a tie goes to the copy that already has a real album tag, then
+the bigger file, then the first path alphabetically. Quality is judged from the
+format and bitrate each file states, so it can't tell a "lossless" file that was
+made from an MP3.
+
+**Removing the lower-quality copies** (`--delete`). Without options nothing is ever changed. `--delete`
+previews, `--delete --apply` does it (it asks first; `--yes` skips the question). It and `--delete-strays` are
+two different rules, so they can't be combined in one `mt dupes` run:
+
+- the copies marked `remove` go to the **Trash** on a Mac, so *Put Back* restores one; on
+  Windows and Linux they are deleted for good, and the question says so;
+- lyrics and covers that belong only to a removed copy go with it, except lyrics
+  the kept copy doesn't have yet, which move over to it. Files shared by two copies
+  of the same name in one folder (`Song.mp3` and `Song.flac` sharing `Song.lrc`) are
+  left alone;
+- a group whose copies are tagged as different versions (one a remix, live take,
+  instrumental or sped-up edit) is listed but **never removed**, even when the lengths
+  match; so are two names for the same file;
+- afterwards the kept songs are handed to `mt organize`, which files each under
+  `Artist/Album/`, looking up the album of loose songs online (`organize.auto_album`),
+  and empty folders left behind are removed. Kept songs outside your music folder stay
+  put. `--no-fix-albums` skips this step.
+
 ```bash
-python3 find_duplicates.py                  # duplicates.folders from config.toml
+python3 find_duplicates.py                  # duplicates.folders from config.toml; keep/remove marks, changes nothing
 python3 find_duplicates.py "/some/folder"   # just this folder
 python3 find_duplicates.py --tolerance 1.5  # how close two lengths must be (seconds)
 python3 find_duplicates.py --report dupes.txt
+python3 find_duplicates.py --delete         # preview moving the lower-quality copies to the Trash
+python3 find_duplicates.py --delete --apply # do it (asks first), then fix the albums of the kept songs
+python3 find_duplicates.py --delete --apply --yes --no-fix-albums
 mt dupes --delete-strays                    # preview: which loose copies would go
 mt dupes --delete-strays --apply            # remove them (asks first; --yes skips the question)
 mt dupes --pick                             # tick the copies to remove yourself, in a list
@@ -469,10 +503,10 @@ mt dupes --pick                             # tick the copies to remove yourself
 
 **Choosing yourself** (`--pick`, or *Tidy my files → Choose which duplicate songs to delete* in the menu). Every
 copy of every duplicate song is listed in one scrolling screen with where it is (loose or in an album), its length
-and size. The copies the automatic rule would remove start ticked, and you can tick or untick any copy, including
-in groups the rule leaves alone. At least one copy of each song always stays (ticking them all is refused), and
-it asks one more time before removing anything. It needs a terminal and doesn't combine with `--delete-strays`,
-`--apply`, `--yes` or `--dry-run`.
+and size. The loose copies `--delete-strays` would remove start ticked, and you can tick or untick any copy,
+including in groups that rule leaves alone. At least one copy of each song always stays (ticking them all is
+refused), and it asks one more time before removing anything. It needs a terminal and doesn't combine with
+`--delete`, `--delete-strays`, `--apply`, `--yes` or `--dry-run`.
 
 **Removing the loose copies** (`--delete-strays`). A copy that sits inside an `Artist/Album/` folder is kept; the
 same song loose in the music folder or directly in an artist folder is removed, together with the lyrics and
@@ -555,7 +589,7 @@ Runs your cleanup pipeline sequentially in one pass:
 
 0. **Tidy folders**: delete junk, move `.lrc.bak` files, merge duplicate albums, only if the library has some (skipped when you name folders or pass `--no-layout`)
 1. *(Optional)* **Tags**: Fix misidentified tags from filenames (`--tags`)
-2. *(Optional)* **Duplicate songs**: remove the loose copies of songs that also sit in an album folder (`--delete-strays`)
+2. *(Optional)* **Duplicate songs**, two ways that can be combined (see the `mt dupes` section above): `--delete-strays` removes the loose copies of songs that also sit in an album folder; `--dedupe` keeps the best-quality copy of each song and removes the others. Both run after the tags so copies are matched on corrected tags, and before art and lyrics so none are fetched for copies about to go. `--dedupe` lists exactly which copies it would remove and asks again (`--yes` skips that); without `--organize` it also files the kept songs under `Artist/Album/` itself.
 3. **Album art**: Search YouTube and embed missing cover art (`--auto`)
 4. **Artist pictures**: Download artist photos from Deezer / YouTube (`--auto`)
 5. **Lyrics**: Fetch, romanize, and translate lyrics from lrclib.net
@@ -566,18 +600,19 @@ network: folder names, tags, and which art, pictures and lyrics exist), then sho
 found next to each step:
 
 ```
-    1 [x] Tidy folders *                   3 duplicate album folders, 41 junk files
-    2 [ ] Remove loose duplicate songs *   12 loose copies (84.1 MB), to the Trash
-    3 [ ] Fix wrong tags from filenames *  rebuild Artist and Title from 'Artist - Title'
-    4 [x] Add missing cover art            212 of 1,904 songs have none
-    5 [x] Find artist pictures             37 of 410 artists have none
-    6 [x] Find and translate lyrics        1,904 songs to check (English ones are skipped)
-    7 [ ] Sort into Artist/Album folders * for Jellyfin, Plex or Navidrome
-    8 [ ] Preview only (dry run)           show what would happen, change nothing
-    9 [ ] Apply without asking again       skip the yes/no questions
+    1 [x] Tidy folders *                         3 duplicate album folders, 41 junk files
+    2 [ ] Remove loose duplicate songs *         12 loose copies (84.1 MB), to the Trash
+    3 [ ] Remove lower-quality duplicate songs * 9 copies (610.3 MB), to the Trash
+    4 [ ] Fix wrong tags from filenames *        rebuild Artist and Title from 'Artist - Title'
+    5 [x] Add missing cover art                  212 of 1,904 songs have none
+    6 [x] Find artist pictures                   37 of 410 artists have none
+    7 [x] Find and translate lyrics              1,904 songs to check (English ones are skipped)
+    8 [ ] Sort into Artist/Album folders *       for Jellyfin, Plex or Navidrome
+    9 [ ] Preview only (dry run)                 show what would happen, change nothing
+   10 [ ] Apply without asking again             skip the yes/no questions
 ```
 
-Steps with something to do start ticked, steps with nothing to do start unticked. Removing songs, fixing tags
+Steps with something to do start ticked, steps with nothing to do start unticked. Removing songs (either way), fixing tags
 and sorting are never ticked for you, even when the scan found work for them.
 
 **Every step marked `*` asks its own yes or no before it runs**, because it deletes, rewrites or moves files you
@@ -597,7 +632,9 @@ skips all the questions (what `mt auto --yes` does for scripts and cron). Tickin
 that add files are left, one "change your files?" question is asked instead.
 
 Any option on the command line, or no terminal (a script, cron), skips the questions and does exactly what
-you typed, as before.
+you typed, as before. The optional steps are off unless you ask, because they rewrite tags, remove files or
+move them; `--everything` switches on `--tags --dedupe --organize` at once (`--delete-strays` stays a separate
+choice).
 
 ```bash
 mt auto                                      # look, ask what to do, then run it
@@ -607,6 +644,9 @@ mt auto --delete-strays                      # also remove loose copies of songs
 mt auto --organize                           # full pass: art + artists + lyrics + folder organization
 mt auto --tags --organize                    # tags + art + artists + lyrics + organize
 mt auto --dry-run                            # preview all steps safely, no questions
+mt auto --dedupe                             # also remove lower-quality duplicate songs (to the Trash)
+mt auto --everything                         # tidy + tags + duplicates + art + artists + lyrics + organize
+mt auto --everything --dry-run               # preview every step safely
 mt auto "YouTube" --organize                 # process and organize a specific folder
 ```
 

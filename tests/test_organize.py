@@ -6,6 +6,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -506,6 +507,24 @@ class SameAlbumTests(unittest.TestCase):
             dests.append(org.plan_move(path, music, planned_dirs=planned_dirs, planned_albums=planned_albums,
                                        track_meta=meta).dest_audio.parent.name)
         self.assertEqual(len(set(dests)), 1, dests)
+
+
+class OrganizeOneSongTests(unittest.TestCase):
+    """`mt organize PATH` takes files as well as folders (the duplicate remover hands it just the songs it kept)."""
+
+    def test_a_single_song_can_be_organized(self):
+        with tempfile.TemporaryDirectory() as d:
+            lib = Path(d) / "lib"
+            song = lib / "YouTube" / "Artist - Title.mp3"
+            song.parent.mkdir(parents=True)
+            song.write_bytes(b"")
+            config = Path(d) / "config.toml"
+            config.write_text(f'music_dir = "{lib}"\nsave_logs = false\n')
+            with redirect_stdout(io.StringIO()):
+                code = org.main([str(song), "--no-auto-album", "--no-progress", "--config", str(config)])
+            self.assertEqual(code, 0)
+            self.assertTrue((lib / "Artist" / "Singles" / "Artist - Title.mp3").is_file())
+            self.assertFalse(song.exists())
 
 
 class RunAllTests(unittest.TestCase):

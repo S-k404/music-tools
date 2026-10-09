@@ -134,13 +134,14 @@ class MenuTests(MenuCase):
         self.assertEqual(self.runs, [("run_and_wait", "all", [], str(self.config))])
 
     def test_tidy_screen_rows(self):
-        for name in ("layout", "duplicates", "pick_duplicates", "organize", "fix_tags"):
+        names = ("layout", "duplicates", "duplicates_by_quality", "pick_duplicates", "organize", "fix_tags")
+        for name in names:
             setattr(self.app, name, mock.Mock(name=name))
-        shown = self.drive(self.app.tidy, 0, 1, 2, 3, 4, 5)
+        shown = self.drive(self.app.tidy, 0, 1, 2, 3, 4, 5, 6)
         self.assertEqual(shown[0][1], ["Clean up junk and duplicate folders", "Remove duplicate songs",
-                                       "Choose which duplicate songs to delete", "Sort songs into Artist/Album folders",
-                                       "Fix wrong tags", "Undo the last tidy"])
-        for name in ("layout", "duplicates", "pick_duplicates", "organize", "fix_tags"):
+                                       "Remove duplicate songs by quality", "Choose which duplicate songs to delete",
+                                       "Sort songs into Artist/Album folders", "Fix wrong tags", "Undo the last tidy"])
+        for name in names:
             getattr(self.app, name).assert_called_once_with()
         self.assertEqual(self.runs, [("run_and_wait", "layout", ["--undo", "--apply"], str(self.config))])
 
@@ -300,7 +301,7 @@ class PickDuplicatesTests(MenuCase):
 
 
 class DuplicatesScreenTests(MenuCase):
-    def run_screen(self, *replies, scope=()):
+    def run_screen(self, *replies, scope=(), screen="duplicates"):
         """Answer the options checklist with these replies in turn (a list of three booleans, or None)."""
         answers = iter(replies)
         shown = []
@@ -311,7 +312,7 @@ class DuplicatesScreenTests(MenuCase):
 
         with mock.patch.object(self.app, "pick_scope", return_value=None if scope is None else list(scope)), \
                 mock.patch.object(interactive, "checklist", side_effect=fake_checklist):
-            self.app.duplicates()
+            getattr(self.app, screen)()
         return shown
 
     def runs_of(self, kind):
@@ -337,6 +338,33 @@ class DuplicatesScreenTests(MenuCase):
         self.assertEqual(len(self.runs_of("flash")), 1)
         self.assertEqual([row[1] for row in shown[1]], [True, True, True])
         self.assertEqual(self.runs_of("run_and_wait"), [("duplicates", ["--delete-strays", "--apply"])])
+
+    def test_the_quality_rule_has_its_own_screen_and_flag(self):
+        shown = self.run_screen([False, False, False], screen="duplicates_by_quality")
+        self.assertEqual(self.runs_of("run_and_wait"), [("duplicates", [])])
+        self.assertEqual(shown[0][0][0], "Remove the lower-quality copies")
+        self.runs.clear()
+        self.run_screen([True, False, False], screen="duplicates_by_quality")
+        self.assertEqual(self.runs_of("run_and_wait"), [("duplicates", ["--delete"])])
+        self.runs.clear()
+        self.run_screen([True, False, True], scope=["/Music/Mixes"], screen="duplicates_by_quality")
+        self.assertEqual(self.runs_of("run_and_wait"), [("duplicates", ["/Music/Mixes", "--delete", "--apply"])])
+        self.runs.clear()
+        self.run_screen([True, True, False], screen="duplicates_by_quality")
+        self.assertEqual(self.runs_of("run_and_wait"), [("duplicates", ["--delete", "--dry-run"])])
+
+    def test_the_quality_screen_refuses_apply_alone_and_apply_with_preview(self):
+        self.run_screen([False, False, True], None, screen="duplicates_by_quality")
+        self.assertEqual(len(self.runs_of("flash")), 1)
+        self.assertEqual(self.runs_of("run_and_wait"), [])
+        self.runs.clear()
+        self.run_screen([True, True, True], [True, False, True], screen="duplicates_by_quality")
+        self.assertEqual(len(self.runs_of("flash")), 1)
+        self.assertEqual(self.runs_of("run_and_wait"), [("duplicates", ["--delete", "--apply"])])
+
+    def test_backing_out_of_the_scope_question_runs_nothing(self):
+        self.run_screen(scope=None, screen="duplicates_by_quality")
+        self.assertEqual(self.runs_of("run_and_wait"), [])
 
     def test_apply_without_remove_is_refused_and_asked_again(self):
         self.run_screen([False, False, True], None)

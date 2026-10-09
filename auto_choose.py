@@ -23,6 +23,7 @@ class Found:
 STEPS = (
     ("layout", "Tidy folders *", "delete junk files, merge duplicate album folders"),
     ("strays", "Remove loose duplicate songs *", "keeps the copy inside an album folder"),
+    ("dedupe", "Remove lower-quality duplicate songs *", "keeps the best copy of each song"),
     ("tags", "Fix wrong tags from filenames *", "rebuild Artist and Title from 'Artist - Title'"),
     ("art", "Add missing cover art", "YouTube thumbnails embedded into the songs"),
     ("artists", "Find artist pictures", "a photo for every artist, from Deezer"),
@@ -32,23 +33,37 @@ STEPS = (
 # switched on when there is nothing to go by (the scan couldn't tell)
 ON_BY_DEFAULT = {"layout": True, "art": True, "artists": True, "lyrics": True}
 # never ticked for you, even when the scan finds work: they delete or move songs, or rewrite tags, so you opt in
-ASK_FIRST = {"strays", "tags", "organize"}
+ASK_FIRST = {"strays", "dedupe", "tags", "organize"}
 
 
 def _count(n: int) -> str:
     return f"{n:,}"
 
 
-def _stray_finding(cfg: dict, workers: int, quiet: bool, library) -> Found:
+def _duplicate_groups(cfg: dict, workers: int, quiet: bool, library) -> list:
+    """Every group of copies of one song, found once for both of the duplicate steps (reading the tags is the slow part)."""
     import find_duplicates as dupes
     from fix_album_art import AUDIO_EXTS, UNSUPPORTED_EXTS
     folders = [resolve(f, cfg["music_dir"]) for f in cfg["duplicates"]["folders"]]
     records, _, _ = dupes.build_records(library.files(folders, AUDIO_EXTS | UNSUPPORTED_EXTS), workers, quiet)
-    groups = dupes.find_groups(records, cfg["duplicates"]["tolerance_seconds"])
+    return dupes.find_groups(records, cfg["duplicates"]["tolerance_seconds"])
+
+
+def _stray_finding(cfg: dict, groups: list) -> Found:
+    import find_duplicates as dupes
     plans, _, _ = dupes.plan_strays(groups, Path(cfg["music_dir"]).expanduser())
     doomed = [m for p in plans for m in p.delete]
     if not doomed:
         return Found("no loose copies of songs that are in an album", False)
+    where = "to the Trash" if dupes.uses_trash() else "deleted for good"
+    return Found(f"{dupes.loose_copies(len(doomed))} ({dupes.human_size(sum(m.size for m in doomed))}), {where}", True)
+
+
+def _dedupe_finding(groups: list) -> Found:
+    import find_duplicates as dupes
+    doomed = [m for g in groups for m in dupes.make_plan(g).losers]
+    if not doomed:
+        return Found("no song with a lower-quality copy", False)
     where = "to the Trash" if dupes.uses_trash() else "deleted for good"
     return Found(f"{dupes.copies(len(doomed))} ({dupes.human_size(sum(m.size for m in doomed))}), {where}", True)
 
@@ -77,8 +92,16 @@ def look(cfg: dict, workers: int, tidy: list, quiet: bool = False) -> tuple:
         return Found(f"{_count(pending)} songs to check (English ones are skipped)" if pending
                      else "every song is done", pending > 0)
 
+    scanned = []   # the duplicate groups, looked for once
+
+    def groups():
+        if not scanned:
+            scanned.append(_duplicate_groups(cfg, workers, quiet, library))
+        return scanned[0]
+
     for key, part in (("art", art), ("artists", artists), ("lyrics", lyrics),
-                      ("strays", lambda: _stray_finding(cfg, workers, quiet, library))):
+                      ("strays", lambda: _stray_finding(cfg, groups())),
+                      ("dedupe", lambda: _dedupe_finding(groups()))):
         try:
             found[key] = part()
         except (TypeError, OSError, ValueError, ImportError, SystemExit):   # None from a folder that can't be read, etc.
@@ -126,6 +149,7 @@ def choose(cfg: dict, args, workers: int, tidy: list) -> bool:
         flash(red("Pick either Preview (changes nothing) or Apply (no more questions), not both."))
     args.no_layout = not ticked["layout"]
     args.delete_strays = ticked["strays"]
+    args.dedupe = ticked["dedupe"]
     args.tags = ticked["tags"]
     args.no_art = not ticked["art"]
     args.no_artists = not ticked["artists"]
