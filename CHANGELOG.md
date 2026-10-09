@@ -1,5 +1,11 @@
 # Changelog
 
+## Merged: two ways to remove duplicate songs
+
+`mt dupes` now has both rules: `--delete-strays` (keep the copy in an Artist/Album/ folder, remove the loose ones) and
+`--delete` (keep the best-quality copy). `--apply`, `--yes` and `--dry-run` work with either, `--pick` ticks the loose
+copies by default, and removal is to the Trash on a Mac and deletion elsewhere for both.
+
 ## Added: command-line options that had no menu path
 
 - A new **One song or artist** screen in the menu covers the options that name a single thing, which used to be
@@ -116,6 +122,42 @@
   real setup script and launcher on each. Tests no longer rely on POSIX-only paths, permissions or the system's
   default text encoding. New `tests/test_platform.py` covers each system's branch.
 - README: Windows setup, the `mt` shortcut, config paths, and a "Windows, macOS and Linux" section.
+
+## Added: duplicate removal in the all-in-one run, and every step in the menu
+
+- **`mt auto --dedupe`** adds the duplicate-song step: keep the best-quality copy of each song, remove the rest (to the
+  Trash on a Mac, deleted for good elsewhere). It sits next to `--delete-strays`, which removes only the loose copies; the two can
+  be combined and the loose-copy step runs first. It runs after the tags and before art and lyrics, so copies are matched on corrected tags and no art or lyrics
+  are fetched for copies about to go. It lists exactly which copies it would remove and asks again (`--yes` skips that);
+  `--dry-run` previews it. With `--organize` the final organize step files the kept songs, otherwise the duplicate step
+  does it itself (`--no-auto-album` is passed on).
+- **`mt auto --everything`** switches on the optional steps `--tags --dedupe --organize` at once. They stay off by
+  default because they rewrite tags, remove files or move them. `--delete-strays` stays a separate choice.
+- The **Do it all for me** screen (`mt auto` in a terminal) lists *Remove lower-quality duplicate songs* beside the other
+  steps; it is never ticked for you, and it looks for the copies before it offers them.
+- `mt dupes --no-auto-album` sorts the kept songs without searching online for the album of loose ones.
+
+## Added: remove duplicate songs by quality, then fix the kept songs' albums
+
+- **`mt dupes` now says which copy is best.** Every group marks one copy `keep` and the rest `remove`, with each file's
+  format and bitrate (`FLAC 16-bit/44.1 kHz`, `MP3 320 kbps`). Lossless beats lossy, higher resolution beats lower,
+  and among lossy files the higher bitrate wins (AAC, Vorbis and Opus count for a little more than MP3 at the same
+  bitrate; files within about 8% are a tie). A tie goes to the copy with a real album tag, then the bigger file, then
+  the first path. A plain run still changes nothing.
+- **`mt dupes --delete`** previews removing the lower-quality copies; **`--apply`** does it (asks first, `--yes` skips
+  the question). They go to the Trash on a Mac and are deleted for good elsewhere, and a removed copy's lyrics and covers go with
+  it, except lyrics the kept copy lacks, which move over to it.
+- **Safeguards.** A group whose copies are tagged as different versions (remix, live, acoustic, instrumental, sped up,
+  slowed...) is listed but never removed, even when the lengths match; two names for one file are never removed; files
+  two copies of one name share (`Song.mp3` + `Song.flac` + `Song.lrc`) are left alone; the copy to keep is checked again
+  just before each removal; it stops after three failures in a row.
+- **Albums fixed afterwards.** The songs kept are handed to `mt organize`, which files each under `Artist/Album/`
+  (looking up the album of loose songs when `organize.auto_album` is on); folders the removal emptied are cleaned up.
+  Songs outside the music folder stay where they are. `--no-fix-albums` skips the step.
+- The menu has **Remove duplicate songs by quality** under *Tidy my files*, next to the loose-copy one and the picker.
+  `--report` files gain the format and keep/remove columns. `--delete` and `--delete-strays` are two different rules, so
+  `mt dupes` refuses both at once.
+- Fixed: `mt organize` refused a single song as its path (`mt organize "Song.mp3"`) although the README says it takes files.
 
 ## Fixed: `mt organize` and placeholder tags
 

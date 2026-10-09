@@ -6,18 +6,27 @@ Run the entire music cleanup pipeline in one go, in the order that makes each st
   1. Tidy folders: delete junk, move .lrc.bak files away, merge duplicate album folders
      (only when the library actually has some; whole library only, so skipped when you name folders)
   2. (Optional) Tags: fix misidentified tags from filenames (--tags)
-  3. (Optional) Duplicate songs: remove the loose copies of songs that also sit in an album folder
-     (--delete-strays; moved to the Trash on a Mac, deleted elsewhere)
+  3. (Optional) Duplicate songs, two ways (they can be combined; the loose-copy one runs first):
+       --delete-strays  remove the loose copies of songs that also sit in an album folder
+       --dedupe         keep the best-quality copy of each song and remove the others
+     Either moves the copies to the Trash on a Mac and deletes them elsewhere. They come after the tags so copies
+     are matched on corrected tags, and before art and lyrics so none are fetched for copies about to go. --dedupe
+     without --organize also files the kept songs under Artist/Album/ itself.
   4. Album art: add missing cover art from YouTube
   5. Artist pictures: download artist photos from Deezer / YouTube
   6. Lyrics: fetch, romanize, and translate lyrics from lrclib.net
   7. (Optional) Organize: sort songs into Artist/Album/ folders for Jellyfin (--organize)
 
+  --everything switches on the optional steps --tags --dedupe --organize (--delete-strays is the cautious
+  alternative to --dedupe, so it stays a separate choice).
+
 Features:
   - Typed on its own in a terminal, it first looks at your library (read-only), tells you what it found for each
     step and lets you tick the ones you want, with Preview and Apply boxes at the end. Any option on the command
     line, or no terminal (scripts, cron), skips those questions and runs exactly what you asked for.
-  - Shows the plan and asks once before changing anything (--yes skips the question).
+  - Shows the plan and asks once before changing anything (--yes skips the question). Steps that delete, rewrite
+    or move files get their own yes or no, and --dedupe then lists the exact copies it would remove and asks
+    again, unless you passed --yes.
   - Hands-free by default (--auto on art tools so it never hangs waiting for user input).
   - Dry run mode (--dry-run) previews all steps without modifying files.
   - Clean Ctrl-C handling stops between steps safely.
@@ -27,6 +36,8 @@ Usage:
   python3 run_all.py                      # tidy + art + artists + lyrics
   python3 run_all.py --organize           # ... + folder organization
   python3 run_all.py --tags --organize    # tags + everything above + organize
+  python3 run_all.py --dedupe             # ... + remove lower-quality duplicate songs (to the Trash)
+  python3 run_all.py --everything         # tags + duplicates + organize on top of the default steps
   python3 run_all.py --dry-run            # preview everything
   python3 run_all.py --yes                # no question asked (for scripts and cron)
   python3 run_all.py --delete-strays      # also remove loose copies of songs that are in an album folder
@@ -70,9 +81,17 @@ CHANGES = {
     "duplicates": ("removes the loose copies of songs that are also in an album folder",
                    "Really remove the loose copies? They go to the Trash." if sys.platform == "darwin"
                    else "Really delete the loose copies? They can't be brought back."),
+    "dedupe": ("removes all but the best-quality copy of each song you have more than once",
+               "Really remove the lower-quality copies? They go to the Trash." if sys.platform == "darwin"
+               else "Really delete the lower-quality copies? They can't be brought back."),
     "organize": ("moves and renames songs into Artist/Album folders",
                  "Really move the songs into Artist/Album folders? This can't be undone automatically."),
 }
+
+
+def change_kind(tool_id: str, tool_args: list) -> str:
+    """Which CHANGES entry a step falls under: the two duplicate steps run the same tool with different rules."""
+    return "dedupe" if tool_id == "duplicates" and "--delete" in tool_args else tool_id
 
 
 def confirm(question: str) -> bool:
@@ -106,6 +125,9 @@ def main(argv: list = None) -> int:
     parser.add_argument("--tags", action="store_true", help="Rebuild misidentified tags from filenames first")
     parser.add_argument("--delete-strays", action="store_true",
                         help="Remove loose copies of songs that also sit in an Artist/Album folder (Trash on a Mac)")
+    parser.add_argument("--dedupe", action="store_true",
+                        help="Remove duplicate songs: keep the best-quality copy, remove the rest (Trash on a Mac)")
+    parser.add_argument("--everything", action="store_true", help="Switch on every optional step: --tags --dedupe --organize")
     parser.add_argument("--no-art", action="store_true", help="Skip album art")
     parser.add_argument("--no-artists", action="store_true", help="Skip artist pictures")
     parser.add_argument("--no-lyrics", action="store_true", help="Skip lyrics")
@@ -113,6 +135,8 @@ def main(argv: list = None) -> int:
     parser.add_argument("--no-auto-album", action="store_true", help="Do not search online for missing album names")
     parser.add_argument("--config", help="Path to config.toml")
     args = parser.parse_args(argv)
+    if args.everything:
+        args.tags = args.dedupe = args.organize = True
 
     extra_config = ["--config", str(args.config)] if args.config else []
     extra_paths = list(args.paths)
@@ -155,6 +179,19 @@ def main(argv: list = None) -> int:
             stray_args += ["--apply", "--yes"]   # the one question below covers it
         stray_args.extend(extra_paths)
         steps.append(("duplicates", "Remove loose copies of songs that are also in an album folder", stray_args))
+
+    if args.dedupe:
+        dupe_args = [*extra_config, "--delete"]
+        if not args.dry_run:
+            dupe_args.append("--apply")
+            if args.yes:   # without it the step lists the copies it would remove and asks, as the Trash is the only undo
+                dupe_args.append("--yes")
+        if args.organize:
+            dupe_args.append("--no-fix-albums")   # the organize step at the end files every song, the kept ones too
+        elif args.no_auto_album:
+            dupe_args.append("--no-auto-album")
+        dupe_args.extend(extra_paths)
+        steps.append(("duplicates", "Remove duplicate songs: keep the best copy, remove the rest", dupe_args))
 
     if not args.no_art:
         art_args = [*extra_config]
@@ -204,13 +241,14 @@ def main(argv: list = None) -> int:
     log("")
 
     if not (args.dry_run or args.yes):
-        risky = [step for step in steps if step[0] in CHANGES]
+        risky = [step for step in steps if change_kind(step[0], step[2]) in CHANGES]
         if risky:
             log("These steps delete, rewrite or move files you already have. Say yes or no to each one:\n")
             for step in risky:
-                tool_id, title, _ = step
-                log(f"  {bold(title)}\n  {dim(CHANGES[tool_id][0])}")
-                if not confirm(CHANGES[tool_id][1]):
+                kind = change_kind(step[0], step[2])
+                title = step[1]
+                log(f"  {bold(title)}\n  {dim(CHANGES[kind][0])}")
+                if not confirm(CHANGES[kind][1]):
                     steps.remove(step)
                     log(yellow("  Skipped.\n"))
                 else:
