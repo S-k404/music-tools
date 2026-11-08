@@ -734,7 +734,7 @@ class EndToEndTests(unittest.TestCase):
         return code, out.getvalue(), organizer
 
     def files(self):
-        return sorted(str(p.relative_to(self.lib)) for p in self.lib.rglob("*.wav"))
+        return sorted(p.relative_to(self.lib).as_posix() for p in self.lib.rglob("*.wav"))
 
     def test_the_report_changes_nothing_and_says_which_copy_wins(self):
         before = self.files()
