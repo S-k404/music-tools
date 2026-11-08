@@ -387,7 +387,7 @@ class PickCopiesTests(unittest.TestCase):
     def test_the_lists_starts_with_what_the_rule_would_remove_ticked(self):
         self.run_pick(None)
         rows = self.shown[0]
-        self.assertEqual([r[0].strip() for r in rows], self.ROWS)
+        self.assertEqual([Path(r[0].strip()).as_posix() for r in rows], self.ROWS)   # shown with the OS separator
         self.assertEqual([r[1] for r in rows], [False, True, True, False, False])
         self.assertTrue(rows[0][2].startswith("in an album · 0:01 · "), rows[0][2])
         self.assertTrue(rows[1][2].startswith("loose · 0:01 · "), rows[1][2])
@@ -714,7 +714,7 @@ class EndToEndTests(unittest.TestCase):
         write_wav(self.lib / "Artist/Album/Artist - Song.wav", 24)
         write_wav(self.lib / "YouTube/Artist - Different.wav", 16)
         self.config = self.dir / "config.toml"
-        self.config.write_text(f'music_dir = "{self.lib}"\nsave_logs = false\n')
+        self.config.write_text(f"music_dir = {json.dumps(str(self.lib))}\nsave_logs = false\n", encoding="utf-8")
         self.trash = self.dir / "trash"
         self.trash.mkdir()
 

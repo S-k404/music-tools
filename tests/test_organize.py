@@ -519,7 +519,7 @@ class OrganizeOneSongTests(unittest.TestCase):
             song.parent.mkdir(parents=True)
             song.write_bytes(b"")
             config = Path(d) / "config.toml"
-            config.write_text(f'music_dir = "{lib}"\nsave_logs = false\n')
+            config.write_text(f"music_dir = {json.dumps(str(lib))}\nsave_logs = false\n", encoding="utf-8")
             with redirect_stdout(io.StringIO()):
                 code = org.main([str(song), "--no-auto-album", "--no-progress", "--config", str(config)])
             self.assertEqual(code, 0)
