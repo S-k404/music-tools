@@ -1,3 +1,12 @@
+<!-- datasheet:banner -->
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/banner-dark.svg">
+    <img src=".github/assets/banner-light.svg" alt="music-tools: A CLI for cleaning up a local music library: missing art, lyrics, wrong tags and duplicates. Every tool previews first." width="100%">
+  </picture>
+</p>
+<!-- /datasheet:banner -->
+
 # music-tools
 
 A small toolkit for cleaning up a local music library, built for collections that come from
@@ -12,6 +21,17 @@ mt auto                     # looks at your library, shows what it found and ask
 ```
 
 Works on macOS, Linux and Windows 10/11. Windows differences are collected under "Setup" and "Windows, macOS and Linux" below.
+
+<!-- datasheet:figure -->
+## At a glance
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/diagram-dark.svg">
+    <img src=".github/assets/diagram-light.svg" alt="Block diagram: one command, five repair tools" width="100%">
+  </picture>
+</p>
+<!-- /datasheet:figure -->
 
 ## Quick commands
 
