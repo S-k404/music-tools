@@ -388,7 +388,7 @@ def move_to_trash(path: Path) -> bool:
     """Move a file to the Trash (recoverable). Returns False if that isn't possible."""
     if sys.platform != "darwin":
         return False
-    script = 'on run argv\ntell application "Finder" to delete (POSIX file (item 1 of argv))\nend run'
+    script = 'on run argv\ntell application "Finder" to delete (POSIX file (item 1 of argv) as alias)\nend run'
     r = subprocess.run(["osascript", "-e", script, str(path)], capture_output=True, timeout=60)
     return r.returncode == 0 and not path.exists()
 

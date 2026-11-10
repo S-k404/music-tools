@@ -45,12 +45,16 @@ class Lyrics:
 _cache: dict = {}            # (endpoint, sorted params) -> (time answered, parsed JSON)
 _cache_lock = threading.Lock()
 CACHE_SECONDS, CACHE_MAX = 600, 4000
+_pacing_lock = threading.Lock()
+_last_request_time = 0.0
+LRCLIB_MIN_INTERVAL = 0.35  # ~3 requests/second to prevent HTTP 429 rate limits
 
 
 def api_get(path: str, **params) -> object:
     """GET one lrclib endpoint and return the parsed JSON, or None on a 404. Busy servers are retried.
     Answers are remembered for a few minutes: a song's spelling variants often boil down to the same
     query, and there's no point asking lrclib the same thing twice in one run."""
+    global _last_request_time
     params = {k: v for k, v in params.items() if v not in (None, "")}
     key = (path, tuple(sorted(params.items())))
     now = time.monotonic()
@@ -58,8 +62,17 @@ def api_get(path: str, **params) -> object:
         hit = _cache.get(key)
     if hit and now - hit[0] < CACHE_SECONDS:
         return hit[1]
+
+    # Pace outgoing requests across threads to avoid tripping lrclib rate limits
+    with _pacing_lock:
+        req_now = time.monotonic()
+        elapsed = req_now - _last_request_time
+        if elapsed < LRCLIB_MIN_INTERVAL:
+            time.sleep(LRCLIB_MIN_INTERVAL - elapsed)
+        _last_request_time = time.monotonic()
+
     try:
-        data = request_json(f"{API}/{path}?{urlencode(params)}", "lrclib.net", headers={"User-Agent": USER_AGENT})
+        data = request_json(f"{API}/{path}?{urlencode(params)}", "lrclib.net", headers={"User-Agent": USER_AGENT}, retries=3)
     except NetError as e:
         raise LyricsError(str(e)) from e
     with _cache_lock:
