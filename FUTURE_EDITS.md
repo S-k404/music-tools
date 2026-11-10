@@ -19,9 +19,11 @@ Last updated: 2026-10-01 (session 3, end).
    undo manifest — see "Should do" below, this was the simpler of the two restore options from session 1's list.
 4. **Try a Claude key** for romanised Japanese/Korean (`ANTHROPIC_API_KEY`, `mt set lyrics.translators
    claude,google`) on a few songs and compare with the kana route. Still not done — no key was available in
-   any of the three sessions' environments. Worth trying now: session 2 found and fixed a bug where
-   `lyrics.claude_model` defaulted to `"claude-sonnet-5-5"`, which isn't a real model id, so every earlier
-   attempt (if any) would have failed regardless of the key. It's now `"claude-sonnet-5"`. Session 3 also
+   any of the three sessions' environments. Session 2 changed the default `lyrics.claude_model` from
+   `"claude-sonnet-5-5"` to `"claude-sonnet-5"`, believing the first wasn't a real model id. It is: both are
+   real (`claude-sonnet-5-5` is the current Sonnet, `claude-sonnet-5` the one before it, still served), so
+   the model id was never what stood in the way; only the missing key was. The default works as it is; set
+   `claude_model = "claude-sonnet-5-5"` in `config.toml` to use the newer model. Session 3 also
    raised the Claude backend's `max_tokens` from 8192 to 16384 (untested live, same reason) so an unusually
    long batch of lines can't get silently truncated into an unparseable reply.
 5. ~~Look at the 1,029 songs that didn't get lyrics tonight~~ — **partly done (session 3)**: sampled ~300 of
