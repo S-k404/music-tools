@@ -149,6 +149,18 @@ class LrclibCacheTests(unittest.TestCase):
     def setUp(self):
         lyrics_fetch._cache.clear()
         self.addCleanup(lyrics_fetch._cache.clear)
+        # no pacing between the tests' canned answers, and no state carried from one test to the next
+        pace = mock.patch.multiple(lyrics_fetch, LRCLIB_MIN_INTERVAL=0, _last_request_time=0.0)
+        pace.start()
+        self.addCleanup(pace.stop)
+
+    def test_a_clock_that_jumps_cannot_stall_the_pacing(self):
+        with mock.patch.object(lyrics_fetch, "request_json", return_value=[]), \
+                mock.patch.multiple(lyrics_fetch, LRCLIB_MIN_INTERVAL=0.05, _last_request_time=1e9), \
+                mock.patch.object(lyrics_fetch.time, "sleep") as sleep:
+            lyrics_fetch.api_get("search", track_name="Song")
+        for call in sleep.call_args_list:
+            self.assertLessEqual(call.args[0], 0.05)
 
     def test_the_same_question_is_asked_once(self):
         with mock.patch.object(lyrics_fetch, "request_json", return_value=[{"trackName": "x"}]) as rj:

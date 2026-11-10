@@ -65,10 +65,9 @@ def api_get(path: str, **params) -> object:
 
     # Pace outgoing requests across threads to avoid tripping lrclib rate limits
     with _pacing_lock:
-        req_now = time.monotonic()
-        elapsed = req_now - _last_request_time
-        if elapsed < LRCLIB_MIN_INTERVAL:
-            time.sleep(LRCLIB_MIN_INTERVAL - elapsed)
+        wait = LRCLIB_MIN_INTERVAL - (time.monotonic() - _last_request_time)
+        if 0 < wait <= LRCLIB_MIN_INTERVAL:   # never longer than one interval, whatever the clock says
+            time.sleep(wait)
         _last_request_time = time.monotonic()
 
     try:
