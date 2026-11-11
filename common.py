@@ -103,6 +103,16 @@ DEFAULTS = {
         "copy_artist_art": True,
         "clean_empty_dirs": True,
     },
+    "identify": {
+        "folders": ["."],
+        "tolerance_seconds": 6.0,
+        "min_confidence": 0.8,
+        "only_misnamed": False,
+        "fix_filenames": False,
+        "rename": True,
+        "update_tags": True,
+        "clear_picard": True,
+    },
 }
 
 
@@ -187,6 +197,14 @@ def _validate(cfg: dict, source: str) -> None:
                 problems.append("organize.fallback_artist must be a non-empty name")
             if not isinstance(org["fallback_album"], str):
                 problems.append("organize.fallback_album must be a folder name (or empty)")
+        ident = cfg.get("identify")
+        if ident:
+            if not all(isinstance(f, str) for f in ident.get("folders", [])):
+                problems.append("identify.folders should be a list of folder paths")
+            if not 0 <= ident.get("tolerance_seconds", 6.0) <= 60:
+                problems.append("identify.tolerance_seconds must be between 0 and 60")
+            if not 0 <= ident.get("min_confidence", 0.8) <= 1:
+                problems.append("identify.min_confidence must be between 0 and 1")
         if not 1 <= cfg["workers"] <= 64:
             problems.append("workers must be between 1 and 64")
     if problems:

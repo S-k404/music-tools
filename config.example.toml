@@ -153,3 +153,32 @@ copy_artist_art = true
 
 # Remove empty source directories after all songs inside them have been moved.
 clean_empty_dirs = true
+
+[identify]
+# Folders to scan for unidentified / misnamed songs (absolute, or relative to music_dir).
+folders = ["."]
+
+# How close the audio file length must be to the catalog song length (in seconds)
+# to count as a match. Tracks whose length differs by much more than this (like DJ sets
+# or mixes) are automatically rejected to prevent misnaming.
+tolerance_seconds = 6.0
+
+# Minimum confidence required to propose or apply a match (0.0 to 1.0).
+min_confidence = 0.8
+
+# Only inspect files with generic or missing names (e.g. "track01", "unknown", pure numbers).
+# false = inspect every file in the target folders.
+only_misnamed = false
+
+# Target files with messy, unformatted, or noisy filenames (e.g. leading track numbers,
+# YouTube tags like [Official Video], website watermarks, or missing artist prefixes).
+fix_filenames = false
+
+# Rename the file (and any companion .lrc/.jpg files) to "Artist - Title.ext".
+rename = true
+
+# Update tags (Title, Artist, Album, Year, Genre) in the audio file.
+update_tags = true
+
+# Clear MusicBrainz / AcoustID tags that link to the wrong release.
+clear_picard = true

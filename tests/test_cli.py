@@ -30,7 +30,8 @@ class CliTests(unittest.TestCase):
 
     def test_easy_names_run_the_original_tools(self):
         for easy, tool in (("auto", "all"), ("covers", "art"), ("pics", "artists"), ("fix", "tags"),
-                           ("dupes", "duplicates"), ("check", "stats"), ("lyrics", "lyrics"), ("art", "art")):
+                           ("dupes", "duplicates"), ("check", "stats"), ("lyrics", "lyrics"), ("art", "art"),
+                           ("shazam", "identify"), ("recognize", "identify"), ("id", "identify")):
             _, calls, _ = self.run_cli(easy)
             self.assertEqual([n for n, _ in calls], [tool], easy)
 
@@ -45,6 +46,11 @@ class CliTests(unittest.TestCase):
         self.assertEqual(calls, [("layout", ["--undo", "--apply"])])
         _, calls, _ = self.run_cli("undo", "-n")
         self.assertEqual(calls, [("layout", ["--undo"])])
+
+    def test_fix_names_runs_identify_with_fix_filenames(self):
+        for cmd in ("fix-names", "fix-filenames"):
+            _, calls, _ = self.run_cli(cmd)
+            self.assertEqual(calls, [("identify", ["--fix-filenames"])], cmd)
 
     def test_clean_means_tidy_with_or_without_dashes(self):
         tidy = [("layout", ["--clean", "--merge-artists", "--merge-albums", "--apply"])]

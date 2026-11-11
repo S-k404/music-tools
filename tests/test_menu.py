@@ -134,13 +134,14 @@ class MenuTests(MenuCase):
         self.assertEqual(self.runs, [("run_and_wait", "all", [], str(self.config))])
 
     def test_tidy_screen_rows(self):
-        names = ("layout", "duplicates", "duplicates_by_quality", "pick_duplicates", "organize", "fix_tags")
+        names = ("layout", "duplicates", "duplicates_by_quality", "pick_duplicates", "organize", "fix_tags", "identify_music")
         for name in names:
             setattr(self.app, name, mock.Mock(name=name))
-        shown = self.drive(self.app.tidy, 0, 1, 2, 3, 4, 5, 6)
+        shown = self.drive(self.app.tidy, 0, 1, 2, 3, 4, 5, 6, 7)
         self.assertEqual(shown[0][1], ["Clean up junk and duplicate folders", "Remove duplicate songs",
                                        "Remove duplicate songs by quality", "Choose which duplicate songs to delete",
-                                       "Sort songs into Artist/Album folders", "Fix wrong tags", "Undo the last tidy"])
+                                       "Sort songs into Artist/Album folders", "Fix wrong tags",
+                                       "Identify unknown/misnamed songs", "Undo the last tidy"])
         for name in names:
             getattr(self.app, name).assert_called_once_with()
         self.assertEqual(self.runs, [("run_and_wait", "layout", ["--undo", "--apply"], str(self.config))])

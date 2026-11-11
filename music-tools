@@ -44,6 +44,8 @@ EVERYDAY COMMANDS
   {PROG} covers                      add missing album art
   {PROG} artists                     find artist pictures
   {PROG} check                       one-screen health check of the library
+  {PROG} identify                    identify unknown/misnamed songs via Shazam (preview only; add --apply)
+  {PROG} fix-names                   fix messy or misnamed filenames via Shazam (preview only; add --apply)
   {PROG} help COMMAND                every option of one command (add --dry-run to any command to preview)
 """
 
@@ -159,6 +161,18 @@ ORGANIZER  (organize_music.py)  — sort songs into Artist/Album/ folders for Je
   {PROG} organize --no-artist-art     don't copy artist photo to folder.jpg and artist.jpg
   {PROG} organize --no-clean          don't remove empty source directories
 
+IDENTIFY  (identify_music.py)  — recognize unknown / misnamed songs via Shazam acoustic fingerprint
+  {PROG} identify                     scan and identify songs (preview only; add --apply)
+  {PROG} identify PATH [PATH..]       identify specific files/folders
+  {PROG} identify --fix-filenames     only check files with messy or unformatted filenames
+  {PROG} identify --only-misnamed     only check files with generic or missing names (track01, unknown, etc.)
+  {PROG} identify --tolerance 6.0     max allowed duration diff in seconds between file and Shazam match
+  {PROG} identify --min-confidence 0.8   confidence threshold (0.0 to 1.0)
+  {PROG} identify --rename            also rename the audio file (and sidecars) to "Artist - Title"
+  {PROG} identify --apply             write the tags (and rename if --rename is set)
+  {PROG} identify --undo              reverse the latest identification run
+  {PROG} fix-names [PATH..]           alias for identify --fix-filenames
+
 ALL-IN-ONE PIPELINE  (run_all.py)  — tidy, tags, duplicates, art, artists, lyrics and organize in one go, in the smart order
   {PROG} all                          in a terminal: looks at the library (read-only), shows what it found for each
                                      step, lets you tick the steps you want, with Preview and Apply boxes at the end
@@ -198,19 +212,23 @@ BOTH
   {PROG} help duplicates  full options for the duplicate-finder tool
   {PROG} help layout      full options for the folder layout tool
   {PROG} help organize    full options for the organizer tool
+  {PROG} help identify    full options for the acoustic identification tool
   {PROG} help all         full options for the all-in-one runner
 """
 
 SCRIPTS = {"art": "fix_album_art.py", "artists": "find_artist_art.py", "lyrics": "find_lyrics.py",
           "tags": "fix_misidentified_tags.py", "duplicates": "find_duplicates.py", "stats": "library_stats.py",
           "layout": "library_layout.py",
-          "organize": "organize_music.py", "all": "run_all.py"}
+          "organize": "organize_music.py", "all": "run_all.py",
+          "identify": "identify_music.py"}
 
 
 # Easier names for the same things (the original names keep working)
 ALIASES = {"auto": "all", "run": "all", "covers": "art", "cover": "art", "album-art": "art", "artist-art": "artists",
            "pics": "artists", "photos": "artists", "fix": "tags", "fix-tags": "tags", "dupes": "duplicates",
-           "check": "stats", "health": "stats", "lyric": "lyrics", "clean": "tidy", "cleanup": "tidy"}
+           "check": "stats", "health": "stats", "lyric": "lyrics", "clean": "tidy", "cleanup": "tidy",
+           "shazam": "identify", "recognize": "identify", "id": "identify",
+           "fix-names": "identify", "fix-filenames": "identify"}
 VERBS = ("tidy", "undo")   # one-word versions of long `layout` commands
 OTHER_COMMANDS = ("menu", "help", "missing", "retry", "where", "dir", "folders", "settings", "set", "reset", "edit")
 COMMANDS = (*SCRIPTS, *ALIASES, *VERBS, *OTHER_COMMANDS)
@@ -350,6 +368,8 @@ def main(argv: list) -> int:
         return 0
 
     cmd, args = command_name(argv[0]), argv[1:]
+    if cmd in ("fix-names", "fix-filenames"):
+        return run_script("identify", extra + fix_flags(SCRIPTS["identify"], ["--fix-filenames", *args]))
     cmd = ALIASES.get(cmd, cmd)
     if cmd in VERBS:
         return run_script("layout", extra + fix_flags(SCRIPTS["layout"], verb_args(cmd, args)))

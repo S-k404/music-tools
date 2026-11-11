@@ -44,6 +44,8 @@ Set up the `mt` alias once (last section of "The `mt` command" below), then type
 | `mt tidy` (or `mt clean`) | merges duplicate folders and deletes junk (shows the list, asks first; `--dry-run` previews) |
 | `mt undo` | puts back what the last tidy moved |
 | `mt dupes --delete-strays` | keeps the copy of a song that sits in an album folder, removes the loose copies (previews first; add `--apply`) |
+| `mt identify` (or `mt shazam`) | identifies unknown or misnamed songs via Shazam acoustic fingerprinting (previews first; add `--apply`) |
+| `mt fix-names` | fixes messy, unformatted, or misnamed filenames via Shazam (previews first; add `--apply`) |
 | `mt lyrics` / `mt covers` / `mt artists` | find lyrics / add album art / find artist pictures |
 | `mt check` | one-screen health check |
 | `mt help COMMAND` | every option of one command |
@@ -62,6 +64,7 @@ of a command (`mt -clean`, `mt --tidy`) are ignored, and in flags `--dryrun`, `-
 | `find_lyrics.py` | `mt lyrics` | Finds lyrics (lrclib.net) and saves original + romanization + English next to each song |
 | `fix_misidentified_tags.py` | `mt fix` | Fixes songs that MusicBrainz Picard tagged as the wrong album track, rebuilding tags from the filename |
 | `find_duplicates.py` | `mt dupes` | Reports songs that are probably the same recording saved twice and marks the best copy; on request removes the lower-quality copies and fixes the kept songs' albums (`--delete`), or only the loose copies that also sit in an album (`--delete-strays`); previews first |
+| `identify_music.py` | `mt identify` | Identifies unknown or misnamed audio files using Shazam acoustic fingerprinting with duration guardrails |
 | `library_layout.py` | `mt tidy` | Finds duplicate album folders, junk and odd names; merges and cleans them with an undo file |
 | `organize_music.py` | `mt organize` | Sorts songs and companion lyrics/images into `Artist/Album/` folders for Jellyfin / Plex |
 | `run_all.py` | `mt auto` | Looks at the library, asks what you want, then runs the tools above in the smart order |

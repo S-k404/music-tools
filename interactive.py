@@ -44,7 +44,8 @@ FAILED_LIST = HERE / "failed_album_art.txt"
 SCRIPTS = {"art": "fix_album_art.py", "artists": "find_artist_art.py", "lyrics": "find_lyrics.py",
           "tags": "fix_misidentified_tags.py", "duplicates": "find_duplicates.py", "stats": "library_stats.py",
           "layout": "library_layout.py",
-          "organize": "organize_music.py", "all": "run_all.py"}
+          "organize": "organize_music.py", "all": "run_all.py",
+          "identify": "identify_music.py"}
 
 # ---------------------------------------------------------------- styling
 ANIMATE = not os.environ.get("MUSIC_TOOLS_NO_ANIMATION")
@@ -467,6 +468,7 @@ class App:
             ("Choose which duplicate songs to delete", "tick the copies yourself", self.pick_duplicates),
             ("Sort songs into Artist/Album folders", "for Jellyfin, Plex, Navidrome", self.organize),
             ("Fix wrong tags", "rebuild tags from filenames", self.fix_tags),
+            ("Identify unknown/misnamed songs", "Shazam recognition + duration guard", self.identify_music),
             ("Undo the last tidy", "puts every moved file back",
              lambda: run_and_wait("layout", ["--undo", "--apply"], self.explicit)),
         ])
@@ -789,6 +791,41 @@ class App:
                 return
             args.append("--apply")
         run_and_wait("tags", args, self.explicit)
+
+    def identify_music(self):
+        cfg = self.cfg
+        rows = [("Whole music folder", self.music_dir(cfg)),
+                ("A different folder or song…", "")]
+        choice = menu("Identify unknown songs · where?", rows, self.status_lines(cfg))
+        if choice is None:
+            return
+        scope = []
+        if choice == 1:
+            clear()
+            p = ask_folder("Folder or song")
+            if not p:
+                return
+            scope = [p]
+        states = checklist("Identify unknown songs · options", [
+            ["Only messy / unformatted filenames", True, "leading numbers, web tags, missing artists, etc."],
+            ["Only generic / placeholder names", False, "tracks named track01, unknown, audio1, etc."],
+            ["Rename files to Artist - Title", True, "renames audio and companion sidecars"],
+            ["Write the changes", False, "off = preview only"],
+        ], "Start")
+        if states is None:
+            return
+        args = [*scope]
+        if states[0]:
+            args.append("--fix-filenames")
+        elif states[1]:
+            args.append("--only-misnamed")
+        if states[2]:
+            args.append("--rename")
+        if states[3]:
+            if not confirm("Really write tags and rename identified songs?"):
+                return
+            args.append("--apply")
+        run_and_wait("identify", args, self.explicit)
 
     # ---- duplicates
     def duplicates(self):

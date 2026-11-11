@@ -7,6 +7,7 @@ __pycache__/
 logs/
 lyrics_checked.json
 album_cache.json
+identify_cache.json
 
 # AI session notes (kept locally, not published)
 CLAUDE.md
